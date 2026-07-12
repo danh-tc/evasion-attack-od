@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project runtime artifacts (created by setup_env.sh / experiment scripts)
+/checkpoints/
+/data/
+/logs/
+/results/
+requirements_locked.txt

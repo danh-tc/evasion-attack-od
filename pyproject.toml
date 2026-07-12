@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "evasion-od"
+version = "0.1.0"
+description = "RaPA-style backbone parameter randomization for transferable evasion attacks on object detectors"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "torchvision",
+    "numpy==1.26.4",
+    "pycocotools>=2.0.7",
+    "tqdm>=4.66",
+]
+
+# mmcv/mmengine/mmdet are installed separately by setup_env.sh (mmcv needs the
+# openmmlab CUDA wheel index, so it cannot be resolved from a plain PyPI dependency
+# list). They are treated as external prerequisites, not declared here.
+
+[tool.setuptools.packages.find]
+where = ["src"]
