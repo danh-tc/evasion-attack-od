@@ -167,3 +167,14 @@ Dùng chung manifest COCO val2017 do `setup_env.sh` sinh sẵn (seed=42), chạy
 - ~~Scaffold `pyproject.toml`, `scripts/check_env.py`, `scripts/run_attack.py`, `scripts/run_sweep.py`~~ — **đã xử lý**: venv tại `/workspace/evasion-venv`, `check_env.py` pass đầy đủ (mmdet/mmcv/mmengine + toàn bộ checkpoint + manifest).
 - ~~Pilot Study (p, S)~~ — **đã xử lý**: chốt p\*=0.05, S\*=3 (xem mục "0. Pilot Study" ở trên).
 - **Tiếp theo:** chạy E1 (OSFD Baseline) ở giai đoạn GO/NOGO screening (50 ảnh).
+
+Nhận xét tổng quan (6 config đã chạy, GO/NOGO scale 50 ảnh):
+
+RaPA-mask có đóng góp transferability thật và đo được trên object detection (không phải chỉ classification như paper gốc) — E4>E1, E5>E1 nhất quán trên mọi model. Nhưng nó không thắng được RRB, và khi đã có RRB thì RaPA gần như không cộng thêm gì (I4≈E2, chênh trong biên nhiễu). Điểm sáng cụ thể nhất: RaPA giúp rõ nhất ở Group C (cross-family khó nhất, Swin-T/DINO) — đây có lẽ là câu chuyện đáng kể nhất để viết thành đóng góp, không phải "RaPA tốt chung chung".
+
+Đề xuất, theo thứ tự ưu tiên:
+
+Nghi ngờ lớn nhất về tính chặt chẽ hiện tại: (p*=0.05, S*=3) được chọn từ Pilot Study không có RRB trong vòng lặp sweep. Rất có thể khi đã có RRB (vốn tự nó đã tạo diversity ở input-level), operating point tối ưu cho RaPA sẽ khác (ví dụ p thấp hơn, vì không cần mask mạnh nữa) — nên trước khi kết luận chắc "RaPA bão hòa với RRB", nên chạy 1 sweep nhỏ (p,S) với RRB bật sẵn để loại khả năng I4 đang dùng sai hyperparameter chứ không phải RaPA thực sự vô dụng khi kết hợp RRB.
+Fix bug E3 (đã chẩn đoán, rẻ) — cần để ma trận đối chiếu E1/E3/E4/E5 hoàn chỉnh, hiện đang thiếu 1 ô kiểm chứng quan trọng (NRDM đứng một mình, không mask).
+Việc mở rộng mask sang Conv (I2) hay stage-wise ablation (I3) — nên hoãn tiếp cho tới khi (1) trả lời xong, vì nếu nguyên nhân I4 không thắng là do sai hyperparameter chứ không phải giới hạn cơ chế, thì I2/I3 cũng sẽ dẫm lại vết đó.
+Trade-off: hướng (1) rẻ, tái dùng hạ tầng sẵn có, trả lời trực tiếp câu hỏi "RaPA có thật sự bão hòa hay đang bị đo sai điểm vận hành" — nên làm trước. Hướng "thiết kế loss mới cho RaPA-OD" (đã bàn ở lượt trước) chỉ nên cân nhắc sau khi (1) và (2) loại trừ được nguyên nhân do thiết lập thí nghiệm.
