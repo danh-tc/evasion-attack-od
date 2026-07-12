@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import torch
 
 from evasion_od.attack import run_attack
@@ -20,12 +22,18 @@ def load_subset(n_images: int, manifest: str = "dev_300") -> CocoSubset:
 def generate_adversarial(surrogate_model, subset: CocoSubset, cfg: AttackConfig, device: str):
     adv_images: dict[int, "np.ndarray"] = {}
     gt_by_image: dict[int, tuple] = {}
-    for sample in subset:
+    n = len(subset)
+    for i, sample in enumerate(subset, start=1):
+        t0 = time.time()
         img = load_image_bgr(sample.image_path)
         adv_images[sample.image_id] = run_attack(
             surrogate_model, img, sample.image_id, sample.gt_boxes, cfg, device
         )
         gt_by_image[sample.image_id] = (sample.gt_boxes, sample.gt_labels)
+        print(
+            f"    [attack] image {i}/{n} id={sample.image_id} {time.time() - t0:.2f}s",
+            flush=True,
+        )
     return adv_images, gt_by_image
 
 
@@ -39,11 +47,17 @@ def evaluate_on_model(
 ) -> EvalResult:
     model = load_model(model_name, device)
     clean_dets, adv_dets = {}, {}
-    for sample in subset:
+    n = len(subset)
+    for i, sample in enumerate(subset, start=1):
+        t0 = time.time()
         clean_img = load_image_bgr(sample.image_path)
         clean_dets[sample.image_id] = detect(model, clean_img, sample.image_id, label_to_cat_id)
         adv_dets[sample.image_id] = detect(
             model, adv_images[sample.image_id], sample.image_id, label_to_cat_id
+        )
+        print(
+            f"    [eval:{model_name}] image {i}/{n} id={sample.image_id} {time.time() - t0:.2f}s",
+            flush=True,
         )
     del model
     torch.cuda.empty_cache()

@@ -1,0 +1,84 @@
+{
+  "n_images": 50,
+  "manifest": "dev_300",
+  "targets": [
+    "fcos_r50",
+    "mask_rcnn_swin_t"
+  ],
+  "grid": [
+    {
+      "p": null,
+      "S": null,
+      "results": {
+        "faster_rcnn_r50_fpn": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 245,
+          "adv_matched": 245,
+          "asr": 0.0,
+          "map_clean": 0.5005597198851288,
+          "map_adv": 0.5005597198851288,
+          "map_drop": 0.0
+        },
+        "fcos_r50": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 192,
+          "adv_matched": 192,
+          "asr": 0.0,
+          "map_clean": 0.48109632962540644,
+          "map_adv": 0.48109632962540644,
+          "map_drop": 0.0
+        },
+        "mask_rcnn_swin_t": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 266,
+          "adv_matched": 266,
+          "asr": 0.0,
+          "map_clean": 0.5359534279694574,
+          "map_adv": 0.5359534279694574,
+          "map_drop": 0.0
+        }
+      },
+      "elapsed_s": 232.20804238319397
+    },
+    {
+      "p": 0.05,
+      "S": 3,
+      "results": {
+        "faster_rcnn_r50_fpn": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 245,
+          "adv_matched": 32,
+          "asr": 0.8693877551020408,
+          "map_clean": 0.5005597198851288,
+          "map_adv": 0.036877236894621405,
+          "map_drop": 0.4636824829905074
+        },
+        "fcos_r50": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 192,
+          "adv_matched": 74,
+          "asr": 0.6145833333333334,
+          "map_clean": 0.48109632962540644,
+          "map_adv": 0.14619340891309296,
+          "map_drop": 0.3349029207123135
+        },
+        "mask_rcnn_swin_t": {
+          "n_images": 50,
+          "n_gt": 329,
+          "clean_matched": 266,
+          "adv_matched": 206,
+          "asr": 0.22556390977443608,
+          "map_clean": 0.5359534279694574,
+          "map_adv": 0.3705473171467772,
+          "map_drop": 0.16540611082268025
+        }
+      },
+      "elapsed_s": 645.0752701759338
+    }
+  ]
+}

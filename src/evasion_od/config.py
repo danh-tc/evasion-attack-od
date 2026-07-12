@@ -205,4 +205,14 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
                 use_rrb=False,
             ),
         ),
+        "I4_rapa_od_rrb": ExperimentSpec(
+            "I4_rapa_od_rrb",
+            AttackConfig(
+                k=3.0,
+                mask_enabled=True,
+                drop_prob=drop_prob,
+                num_masks=num_masks,
+                use_rrb=True,
+            ),
+        ),
     }

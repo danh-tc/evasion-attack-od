@@ -57,9 +57,12 @@ def main() -> int:
         cfg_ok = spec.config_path.exists()
         ckpt_ok = spec.checkpoint_path.exists()
         status = "OK" if (cfg_ok and ckpt_ok) else "MISSING"
-        if status != "OK":
+        # aux group (retinanet_r50/r101, dino_r50) is optional -- only needed for
+        # later ablations (I2/I3 in plan.md), not required for setup_env.sh to pass.
+        if status != "OK" and spec.group != "aux":
             ok = False
-        print(f"  [{status}] {name:<20} group={spec.group:<10} cfg={cfg_ok} ckpt={ckpt_ok}")
+        suffix = " (optional)" if spec.group == "aux" and status != "OK" else ""
+        print(f"  [{status}] {name:<20} group={spec.group:<10} cfg={cfg_ok} ckpt={ckpt_ok}{suffix}")
 
     print()
     print("===== Data =====")

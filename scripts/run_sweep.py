@@ -61,28 +61,28 @@ def main() -> None:
 
     subset = load_subset(args.n_images, args.manifest)
     label_to_cat_id = subset.label_to_cat_id()
-    print(f"[run_sweep] {len(subset)} images, rates={rates}, masks={masks}")
+    print(f"[run_sweep] {len(subset)} images, rates={rates}, masks={masks}", flush=True)
 
     grid: list[dict] = []
 
     if not args.no_baseline:
-        print("[run_sweep] running no-mask baseline (NRDM control)")
+        print("[run_sweep] running no-mask baseline (NRDM control)", flush=True)
         cfg = AttackConfig(k=1.0, mask_enabled=False, max_iterations=args.n_iters)
         t0 = time.time()
         results = run_one(cfg, subset, label_to_cat_id, target_names, args.device)
         grid.append({"p": None, "S": None, "results": results, "elapsed_s": time.time() - t0})
-        print(f"  done in {time.time() - t0:.1f}s -> {results}")
+        print(f"  done in {time.time() - t0:.1f}s -> {results}", flush=True)
 
     for p in rates:
         for s in masks:
-            print(f"[run_sweep] p={p} S={s}")
+            print(f"[run_sweep] p={p} S={s}", flush=True)
             cfg = AttackConfig(
                 k=1.0, mask_enabled=True, drop_prob=p, num_masks=s, max_iterations=args.n_iters
             )
             t0 = time.time()
             results = run_one(cfg, subset, label_to_cat_id, target_names, args.device)
             grid.append({"p": p, "S": s, "results": results, "elapsed_s": time.time() - t0})
-            print(f"  done in {time.time() - t0:.1f}s -> {results}")
+            print(f"  done in {time.time() - t0:.1f}s -> {results}", flush=True)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

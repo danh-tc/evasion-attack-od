@@ -156,11 +156,6 @@ echo ""
 echo "===== Installing local package ====="
 pip install --no-cache-dir -e "$PROJECT_DIR"
 
-# ── 12. check_env ─────────────────────────────────────────────────────────────
-echo ""
-echo "===== Running check_env.py ====="
-python "$PROJECT_DIR/scripts/check_env.py"
-
 # ── 13. Download all model checkpoints ───────────────────────────────────────
 echo ""
 echo "===== Downloading model checkpoints ====="
@@ -188,16 +183,11 @@ download_ckpt deformable-detr_r50_16xb2-50e_coco    "deformable-detr_r50_16xb2-5
 download_ckpt yolov3_d53_mstrain-608_273e_coco      "yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth"
 download_ckpt yolox_l_8x8_300e_coco                 "yolox_l_8x8_300e_coco_20211126_140236-d3bd2b23.pth"
 
-# Group C — Swin ViT targets + aux surrogate
+# Group C — Swin ViT targets
 download_ckpt mask-rcnn_swin-t-p4-w7_fpn_1x_coco   "mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth"
 download_ckpt dino-5scale_swin-l_8xb2-12e_coco      "dino-5scale_swin-l_8xb2-12e_coco_20230228_072924-a654145f.pth"
 
-# Supplementary / ablation
-download_ckpt retinanet_r50_fpn_1x_coco             "retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth"
-download_ckpt retinanet_r101_fpn_1x_coco            "retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-download_ckpt dino-4scale_r50_8xb2-12e_coco         "dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth"
-
-echo "All checkpoints done."
+echo "All checkpoints done (surrogate + groups A/B/C). Aux group (retinanet_r50/r101, dino_r50) skipped — download manually if needed for later ablations."
 
 # ── 14. Download COCO val2017 dataset ────────────────────────────────────────
 echo ""
@@ -266,10 +256,14 @@ echo "===== Saving requirements snapshot ====="
 pip freeze > "$PROJECT_DIR/requirements_locked.txt"
 echo "Saved to: $PROJECT_DIR/requirements_locked.txt"
 
+# ── 17. Final check_env (everything should be in place now) ─────────────────
+echo ""
+echo "===== Running check_env.py ====="
+python "$PROJECT_DIR/scripts/check_env.py"
+
 echo ""
 echo "===== DONE ====="
 echo "Activate with: source $VENV_DIR/bin/activate"
 echo "Project dir:   $PROJECT_DIR"
-echo "Next: python scripts/check_env.py"
-echo "      python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json"
+echo "Next: python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json"
 echo "      python scripts/run_sweep.py --n-images 5 --rates 0.05 --masks 2 --n-iters 5 --out results/e0_smoke.json"

@@ -1,0 +1,92 @@
+{
+  "experiment": "E2_osfd_rrb",
+  "attack_config": {
+    "epsilon": 5.0,
+    "alpha": 1.0,
+    "max_iterations": 100,
+    "momentum": 1.0,
+    "k": 3.0,
+    "mask_enabled": false,
+    "drop_prob": 0.05,
+    "mask_layer_types": [
+      "BatchNorm2d"
+    ],
+    "num_masks": 1,
+    "use_rrb": true,
+    "seed": 42
+  },
+  "n_images": 50,
+  "manifest": "dev_300",
+  "results": {
+    "faster_rcnn_r50_fpn": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 245,
+      "adv_matched": 22,
+      "asr": 0.9102040816326531,
+      "map_clean": 0.5005597198851288,
+      "map_adv": 0.01438489612176224,
+      "map_drop": 0.48617482376336657
+    },
+    "fcos_r50": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 192,
+      "adv_matched": 39,
+      "asr": 0.796875,
+      "map_clean": 0.48109632962540644,
+      "map_adv": 0.06817750029259244,
+      "map_drop": 0.412918829332814
+    },
+    "deformable_detr": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 240,
+      "adv_matched": 30,
+      "asr": 0.875,
+      "map_clean": 0.5348160921586077,
+      "map_adv": 0.029872207366240716,
+      "map_drop": 0.504943884792367
+    },
+    "yolov3_d53": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 213,
+      "adv_matched": 105,
+      "asr": 0.5070422535211268,
+      "map_clean": 0.45590330518339334,
+      "map_adv": 0.164973244651774,
+      "map_drop": 0.29093006053161935
+    },
+    "yolox_l": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 248,
+      "adv_matched": 137,
+      "asr": 0.4475806451612903,
+      "map_clean": 0.5920336204647455,
+      "map_adv": 0.26786866291645295,
+      "map_drop": 0.32416495754829255
+    },
+    "mask_rcnn_swin_t": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 266,
+      "adv_matched": 152,
+      "asr": 0.42857142857142855,
+      "map_clean": 0.5359534279694574,
+      "map_adv": 0.19301195682548156,
+      "map_drop": 0.3429414711439759
+    },
+    "dino_swin_l": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 275,
+      "adv_matched": 216,
+      "asr": 0.21454545454545454,
+      "map_clean": 0.6627447227449527,
+      "map_adv": 0.5292743303949708,
+      "map_drop": 0.13347039234998181
+    }
+  }
+}
