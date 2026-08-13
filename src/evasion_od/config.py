@@ -165,8 +165,8 @@ class AttackConfig:
 
     # Input-level augmentation applied to the adversarial image before the
     # surrogate forward pass. "none" (E1/E3/E4/E5) / "rrb" (OSFD's rotation +
-    # resize + blur, E2/I4) / "dim" / "ssa" / "srs" -- see new-plan.txt Sec 5.2
-    # for dim/ssa/srs.
+    # resize + blur, E2/I4) / "dim" / "ssa" / "srs" (new-plan.txt Sec 5.2) /
+    # "rrb_spectral" (Option A: spectral on top of unmodified RRB, E9).
     augmentation: str = "none"
 
     seed: int = 42
@@ -174,14 +174,14 @@ class AttackConfig:
 
 @dataclass
 class ExperimentSpec:
-    """One named row of the E1..E8/I4 comparison table in plan.md."""
+    """One named row of the E1..E9/I4 comparison table in plan.md."""
 
     name: str
     attack: AttackConfig = field(default_factory=AttackConfig)
 
 
 def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSpec]:
-    """Build E1..E8/I4 given a (p*, S*) chosen from the Pilot Study."""
+    """Build E1..E9/I4 given a (p*, S*) chosen from the Pilot Study."""
     return {
         "E1_osfd_baseline": ExperimentSpec(
             "E1_osfd_baseline", AttackConfig(k=3.0, mask_enabled=False, augmentation="none")
@@ -235,5 +235,14 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
         ),
         "E8_osfd_srs": ExperimentSpec(
             "E8_osfd_srs", AttackConfig(k=3.0, mask_enabled=False, augmentation="srs")
+        ),
+        # Option A: additive, not a replacement for RRB -- spectral band
+        # attenuation on top of RRB left completely unmodified (theta=7,
+        # blur included). Tests whether E8's gap to E2 on Group B/C comes
+        # from SRS dropping RRB's blur/wider rotation rather than from the
+        # spectral step itself.
+        "E9_osfd_rrb_spectral": ExperimentSpec(
+            "E9_osfd_rrb_spectral",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_spectral"),
         ),
     }

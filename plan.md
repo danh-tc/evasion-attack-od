@@ -162,19 +162,40 @@ Nguồn: `new-plan.txt` (kế hoạch riêng, "Spectral Augmentation for Transfe
 - Hoãn Phase 2 của `new-plan.txt` (alternating CNN/ViT surrogate với RT-DETR-L) — RT-DETR-L chưa có trong model zoo, và chưa có tín hiệu Phase 1 để biện minh cho việc đầu tư thêm.
 - Quy mô chạy: giữ đúng phương pháp GO/NOGO screening đã dùng cho E1–I4 (50 ảnh, T=100, manifest `dev_300`), **không** nhảy thẳng lên quy mô Phase 1 gốc của `new-plan.txt` (1000+ ảnh, 300 bước, 3 mức epsilon).
 
-Ba experiment mới, cùng surrogate/loss/eps/alpha/iterations như E1/E2 (chỉ đổi trục augmentation) để so sánh trực tiếp, không cần chạy lại E1/E2:
+Bốn experiment mới, cùng surrogate/loss/eps/alpha/iterations như E1/E2 (chỉ đổi trục augmentation) để so sánh trực tiếp, không cần chạy lại E1/E2:
 
 | # | Tên | Augmentation | Loss | Mask | Vai trò |
 |---|---|---|---|---|---|
 | E6 | OSFD + DIM | dim (Xie et al. CVPR'19, resize [0.9,1.1] + pad, p=0.7) | OSFD (k=3) | Không | So sánh với RRB bằng một augmentation cổ điển khác (baseline cho DIM) |
 | E7 | OSFD + SSA | ssa (Long et al. ECCV'22, FFT × random spectral scale U(1-ρ,1+ρ), ρ=0.5, N=20 copies/iter qua `num_masks`) | OSFD (k=3) | Không | Baseline frequency-domain đã chứng minh hiệu quả cho classification transfer, chưa từng áp dụng cho OD |
 | E8 | OSFD + SRS (đề xuất) | srs (band attenuation ngẫu nhiên trong FFT + adaptive resize + rotation ±5°, tái dùng `adaptive_random_resizing`/`random_axis_rotation` từ `rrb.py`) | OSFD (k=3) | Không | Phương pháp đề xuất của `new-plan.txt` — câu hỏi chính: SRS có vượt RRB (đặc biệt ở Group C) hay không |
+| E9 | OSFD + RRB + Spectral (Option A) | rrb_spectral (spectral band attenuation → RRB nguyên bản không đổi: rotate θ=7 + adaptive resize + blur, tái dùng `apply_rrb` từ `rrb.py` nguyên vẹn) | OSFD (k=3) | Không | Bổ sung spectral lên trên RRB thay vì thay thế — kiểm tra giả thuyết "E8 thua E2 ở Group B/C vì SRS bỏ blur + thu hẹp θ 7→5, không phải vì bản thân spectral vô dụng" |
 
-Lưu ý chi phí: E7 (SSA) dùng `num_masks=20` (N spectral copies theo đúng spec SSA gốc) nên tốn ~20x forward/backward so với E6/E8/E1/E2 ở cùng số ảnh/iteration — đây là đặc tính thuật toán, không phải lỗi cấu hình.
+Lưu ý chi phí: E7 (SSA) dùng `num_masks=20` (N spectral copies theo đúng spec SSA gốc) nên tốn ~20x forward/backward so với E6/E8/E9/E1/E2 ở cùng số ảnh/iteration — đây là đặc tính thuật toán, không phải lỗi cấu hình. E9 không có chi phí phụ trội này (vẫn 1 forward/backward mỗi iteration, chỉ thêm 1 bước FFT/iFFT rẻ trước RRB).
 
-Chạy: `python scripts/run_attack.py --experiment E8_osfd_srs --out results/E8_osfd_srs_go.json` (tương tự cho E6/E7).
+Chạy: `python scripts/run_attack.py --experiment E9_osfd_rrb_spectral --out results/E9_osfd_rrb_spectral_go.json` (tương tự cho E6/E7/E8, đổi tên experiment).
 
-**Kết quả:** _chưa chạy — cập nhật bảng này sau khi có `results/E6_osfd_dim_go.json`, `results/E7_osfd_ssa_go.json`, `results/E8_osfd_srs_go.json`._
+**Kết quả (50 ảnh, T=100) — E6, E8 đã chạy; E7 bị loại giữa chừng (quá chậm, xem ghi chú dưới); E9 chưa chạy:**
+
+| Group | Model | E1 (none) | E2 (RRB) | E6 (DIM) | E8 (SRS) |
+|---|---|---|---|---|---|
+| White-box | faster_rcnn_r50_fpn | 0.423 | 0.486 | 0.475 | 0.498 |
+| A | fcos_r50 | 0.161 | 0.413 | 0.359 | 0.431 |
+| A | deformable_detr | 0.327 | 0.505 | 0.481 | 0.499 |
+| B | yolov3_d53 | 0.054 | 0.291 | 0.121 | 0.240 |
+| B | yolox_l | 0.045 | 0.324 | 0.193 | 0.312 |
+| C | mask_rcnn_swin_t | 0.059 | 0.343 | 0.191 | 0.329 |
+| C | dino_swin_l | 0.023 | 0.133 | 0.053 | 0.123 |
+
+Trung bình black-box (6 target, mAP-drop): E1=0.111 → E6=0.233 → **E8=0.322** → E2=0.335.
+
+**E6 (DIM):** thắng E1 tuyệt đối 6/6 (DIM là augmentation thật, có đóng góp) nhưng thua E2 tuyệt đối 6/6. Đáng chú ý: DIM bắt được ~82% lợi ích của RRB (so với E1) ở Group A (cùng backbone) nhưng chỉ ~41% ở Group B và C — gợi ý phần rotate+blur riêng của RRB (không chỉ resize) mới là thứ tạo giá trị cho cross-architecture transfer.
+
+**E8 (SRS):** thắng E1/E6 tuyệt đối (7/7 kể cả white-box so với E6) nhưng **không đạt success criteria "Minimum" của `new-plan.txt` mục 8**: trung bình black-box thấp hơn RRB ~3.9% (yêu cầu phải cao hơn ≥5%), và giảm hơn 3% so với RRB đúng ở Group B (−10.4%) và Group C (−5.0%) — hai nhóm mà tiêu chí yêu cầu không được giảm. Ngược với giả thuyết gốc, SRS mạnh nhất (ngang hoặc nhỉnh hơn RRB) ở Group A dễ, nhưng yếu nhất so với RRB đúng ở Group C khó — cùng pattern như E6, chỉ nhẹ hơn.
+
+**E7 (SSA) — bị loại:** `num_masks=20` khiến tổng forward-backward gấp ~20x E6/E8 ở cùng 50 ảnh/T=100 (ước tính ~100.000 lượt chỉ riêng phần tấn công), vượt thời gian cho phép nên phải dừng giữa chừng. Hệ quả: thiếu một ô đối chứng quan trọng — success criteria yêu cầu SRS phải thắng rõ SSA để chứng minh không chỉ là "port SSA trần", hiện chưa kiểm chứng được. Hướng xử lý (chưa quyết định): giảm N (vd 5) chạy lại để có số liệu tham chiếu, hoặc chấp nhận thiếu ô này giống cách đã tạm gác bug E3.
+
+**Xếp hạng tạm thời:** E2 ≳ E8 > E6 > E1. E9 (đang chờ chạy) là phép kiểm tra trực tiếp giả thuyết rút ra từ E6/E8: giữ nguyên RRB (rotate+blur) và chỉ cộng thêm spectral lên trên, thay vì để SRS tự thay thế phần rotate/blur của RRB bằng phiên bản yếu hơn (θ=5, không blur).
 
 ## Dataset dùng cho thực nghiệm
 Dùng chung manifest COCO val2017 do `setup_env.sh` sinh sẵn (seed=42), chạy theo 3 giai đoạn tăng dần quy mô:

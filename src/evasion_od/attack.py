@@ -19,7 +19,7 @@ from evasion_od.masking import add_dropconnect_hooks, remove_dropconnect_hooks
 from evasion_od.models import backbone_features
 from evasion_od.preprocessing import build_adversarial_image, build_resized_input, preprocess_batch
 from evasion_od.rrb import apply_rrb
-from evasion_od.srs import apply_srs
+from evasion_od.srs import apply_rrb_spectral, apply_srs
 from evasion_od.ssa import apply_ssa
 
 
@@ -36,6 +36,8 @@ def _apply_augmentation(
         return apply_ssa(adv)
     if kind == "srs":
         return apply_srs(adv, gt_resized)
+    if kind == "rrb_spectral":
+        return apply_rrb_spectral(adv, gt_resized)
     raise ValueError(f"unknown augmentation: {kind!r}")
 
 

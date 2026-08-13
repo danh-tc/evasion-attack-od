@@ -14,7 +14,7 @@ import random
 
 import torch
 
-from evasion_od.rrb import adaptive_random_resizing, random_axis_rotation
+from evasion_od.rrb import adaptive_random_resizing, apply_rrb, random_axis_rotation
 
 
 def spectral_band_attenuation(
@@ -75,3 +75,18 @@ def apply_srs(
     out = adaptive_random_resizing(out, gt_boxes_xyxy, rho=rho, s_max=s_max)
     out = random_axis_rotation(out, gt_boxes_xyxy, theta=theta, l_s=l_s)
     return out
+
+
+def apply_rrb_spectral(img_chw: torch.Tensor, gt_boxes_xyxy: torch.Tensor) -> torch.Tensor:
+    """Option A: spectral band attenuation additive on top of RRB, not replacing it.
+
+    Pipeline: spectral -> rotate -> resize -> blur, i.e. `apply_rrb` runs
+    completely unmodified (theta=7, blur included) on top of the spectral
+    step. Hypothesis: E8 (SRS) drops RRB's blur and narrows theta 7->5,
+    which may be why it trails RRB specifically on Group B/C (see E6 vs E2
+    comparison, where the same rotate+blur components explain most of
+    RRB's edge on those groups) -- this keeps RRB intact and only adds
+    frequency diversity on top.
+    """
+    out = spectral_band_attenuation(img_chw)
+    return apply_rrb(out, gt_boxes_xyxy)
