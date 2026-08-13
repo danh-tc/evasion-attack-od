@@ -157,33 +157,40 @@ class AttackConfig:
     mask_enabled: bool = False
     drop_prob: float = 0.05
     mask_layer_types: tuple[str, ...] = ("BatchNorm2d",)
-    num_masks: int = 1  # "S" in RaPA paper / "--masks" in run_sweep.py
+    # Number of independent stochastic forward/backward passes averaged per
+    # PGD step. "S" in the RaPA paper (independent masks) / "--masks" in
+    # run_sweep.py; also doubles as SSA's "N" independent spectral copies
+    # (new-plan.txt Sec 5.2.D) when augmentation="ssa".
+    num_masks: int = 1
 
-    # OSFD's RRB augmentation (rotation + resize + blur) -- off by default (E1/E3/E4/E5)
-    use_rrb: bool = False
+    # Input-level augmentation applied to the adversarial image before the
+    # surrogate forward pass. "none" (E1/E3/E4/E5) / "rrb" (OSFD's rotation +
+    # resize + blur, E2/I4) / "dim" / "ssa" / "srs" -- see new-plan.txt Sec 5.2
+    # for dim/ssa/srs.
+    augmentation: str = "none"
 
     seed: int = 42
 
 
 @dataclass
 class ExperimentSpec:
-    """One named row of the E1..E5 comparison table in plan.md."""
+    """One named row of the E1..E8/I4 comparison table in plan.md."""
 
     name: str
     attack: AttackConfig = field(default_factory=AttackConfig)
 
 
 def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSpec]:
-    """Build E1..E5 given a (p*, S*) chosen from the Pilot Study."""
+    """Build E1..E8/I4 given a (p*, S*) chosen from the Pilot Study."""
     return {
         "E1_osfd_baseline": ExperimentSpec(
-            "E1_osfd_baseline", AttackConfig(k=3.0, mask_enabled=False, use_rrb=False)
+            "E1_osfd_baseline", AttackConfig(k=3.0, mask_enabled=False, augmentation="none")
         ),
         "E2_osfd_rrb": ExperimentSpec(
-            "E2_osfd_rrb", AttackConfig(k=3.0, mask_enabled=False, use_rrb=True)
+            "E2_osfd_rrb", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb")
         ),
         "E3_nrdm_control": ExperimentSpec(
-            "E3_nrdm_control", AttackConfig(k=1.0, mask_enabled=False, use_rrb=False)
+            "E3_nrdm_control", AttackConfig(k=1.0, mask_enabled=False, augmentation="none")
         ),
         "E4_rapa_od_baseline": ExperimentSpec(
             "E4_rapa_od_baseline",
@@ -192,7 +199,7 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
                 mask_enabled=True,
                 drop_prob=drop_prob,
                 num_masks=num_masks,
-                use_rrb=False,
+                augmentation="none",
             ),
         ),
         "E5_rapa_od_osfd_loss": ExperimentSpec(
@@ -202,7 +209,7 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
                 mask_enabled=True,
                 drop_prob=drop_prob,
                 num_masks=num_masks,
-                use_rrb=False,
+                augmentation="none",
             ),
         ),
         "I4_rapa_od_rrb": ExperimentSpec(
@@ -212,7 +219,21 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
                 mask_enabled=True,
                 drop_prob=drop_prob,
                 num_masks=num_masks,
-                use_rrb=True,
+                augmentation="rrb",
             ),
+        ),
+        # Sec 5.2 augmentation comparison (new-plan.txt Phase 1), directly
+        # comparable to E1 ("none") and E2 ("rrb") above: same loss (OSFD
+        # k=3), no RaPA mask, same eps/alpha/iterations -- only the
+        # augmentation axis varies.
+        "E6_osfd_dim": ExperimentSpec(
+            "E6_osfd_dim", AttackConfig(k=3.0, mask_enabled=False, augmentation="dim")
+        ),
+        "E7_osfd_ssa": ExperimentSpec(
+            "E7_osfd_ssa",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="ssa", num_masks=20),
+        ),
+        "E8_osfd_srs": ExperimentSpec(
+            "E8_osfd_srs", AttackConfig(k=3.0, mask_enabled=False, augmentation="srs")
         ),
     }

@@ -153,6 +153,29 @@ RRB tăng transfer rất mạnh so với E1 (gấp 2.5–14x tùy model, mạnh 
 
 File: `results/I4_rapa_od_rrb_go.json`.
 
+### 2. Augmentation Comparison — DIM / SSA / SRS (new-plan.txt Sec 5.2)
+
+Nguồn: `new-plan.txt` (kế hoạch riêng, "Spectral Augmentation for Transferable Adversarial Attacks on OD") đề xuất so sánh 5 augmentation input-level: none, RRB, DIM, SSA, SRS (SRS = phương pháp mới, spectral band attenuation + adaptive resize + rotation nhẹ). Tài liệu đó không nhắc tới RaPA-mask và giả định quy mô GPU lớn hơn nhiều (VOC2012, hàng nghìn ảnh, 300 bước PGD). Quyết định áp dụng ở đây (khác với `new-plan.txt`):
+
+- **Dataset: vẫn dùng COCO** (val2017, manifest `dev_300`/`val_100` có sẵn), không chuyển sang VOC2012.
+- DIM/SSA/SRS được thêm như một lựa chọn mới trên trục `augmentation` sẵn có trong `AttackConfig` (thay cho `use_rrb: bool` cũ), tái dùng toàn bộ hạ tầng attack.py/RaPA-mask hiện có — không xây pipeline riêng. Nhờ vậy tổ hợp RaPA-mask × augmentation mới vẫn khả thi ở bước sau nếu cần.
+- Hoãn Phase 2 của `new-plan.txt` (alternating CNN/ViT surrogate với RT-DETR-L) — RT-DETR-L chưa có trong model zoo, và chưa có tín hiệu Phase 1 để biện minh cho việc đầu tư thêm.
+- Quy mô chạy: giữ đúng phương pháp GO/NOGO screening đã dùng cho E1–I4 (50 ảnh, T=100, manifest `dev_300`), **không** nhảy thẳng lên quy mô Phase 1 gốc của `new-plan.txt` (1000+ ảnh, 300 bước, 3 mức epsilon).
+
+Ba experiment mới, cùng surrogate/loss/eps/alpha/iterations như E1/E2 (chỉ đổi trục augmentation) để so sánh trực tiếp, không cần chạy lại E1/E2:
+
+| # | Tên | Augmentation | Loss | Mask | Vai trò |
+|---|---|---|---|---|---|
+| E6 | OSFD + DIM | dim (Xie et al. CVPR'19, resize [0.9,1.1] + pad, p=0.7) | OSFD (k=3) | Không | So sánh với RRB bằng một augmentation cổ điển khác (baseline cho DIM) |
+| E7 | OSFD + SSA | ssa (Long et al. ECCV'22, FFT × random spectral scale U(1-ρ,1+ρ), ρ=0.5, N=20 copies/iter qua `num_masks`) | OSFD (k=3) | Không | Baseline frequency-domain đã chứng minh hiệu quả cho classification transfer, chưa từng áp dụng cho OD |
+| E8 | OSFD + SRS (đề xuất) | srs (band attenuation ngẫu nhiên trong FFT + adaptive resize + rotation ±5°, tái dùng `adaptive_random_resizing`/`random_axis_rotation` từ `rrb.py`) | OSFD (k=3) | Không | Phương pháp đề xuất của `new-plan.txt` — câu hỏi chính: SRS có vượt RRB (đặc biệt ở Group C) hay không |
+
+Lưu ý chi phí: E7 (SSA) dùng `num_masks=20` (N spectral copies theo đúng spec SSA gốc) nên tốn ~20x forward/backward so với E6/E8/E1/E2 ở cùng số ảnh/iteration — đây là đặc tính thuật toán, không phải lỗi cấu hình.
+
+Chạy: `python scripts/run_attack.py --experiment E8_osfd_srs --out results/E8_osfd_srs_go.json` (tương tự cho E6/E7).
+
+**Kết quả:** _chưa chạy — cập nhật bảng này sau khi có `results/E6_osfd_dim_go.json`, `results/E7_osfd_ssa_go.json`, `results/E8_osfd_srs_go.json`._
+
 ## Dataset dùng cho thực nghiệm
 Dùng chung manifest COCO val2017 do `setup_env.sh` sinh sẵn (seed=42), chạy theo 3 giai đoạn tăng dần quy mô:
 

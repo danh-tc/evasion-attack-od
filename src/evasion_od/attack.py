@@ -1,9 +1,10 @@
 """MI-FGSM + backbone-feature-distortion attack, with optional RaPA masking.
 
-Implements the E1-E5 rows of plan.md's experiment table: the loss (NRDM
+Implements the E1-E8/I4 rows of plan.md's experiment table: the loss (NRDM
 k=1 / OSFD k=3), masking (RaPA DropConnect on backbone BN affine), and
-augmentation (RRB) axes are all independent AttackConfig flags so any of
-the five configs is just a different set of flags through this one loop.
+input-level augmentation (none/RRB/DIM/SSA/SRS) axes are all independent
+AttackConfig flags so any config is just a different set of flags through
+this one loop.
 """
 
 from __future__ import annotations
@@ -12,11 +13,30 @@ import numpy as np
 import torch
 
 from evasion_od.config import AttackConfig
+from evasion_od.dim import apply_dim
 from evasion_od.losses import backbone_feature_loss
 from evasion_od.masking import add_dropconnect_hooks, remove_dropconnect_hooks
 from evasion_od.models import backbone_features
 from evasion_od.preprocessing import build_adversarial_image, build_resized_input, preprocess_batch
 from evasion_od.rrb import apply_rrb
+from evasion_od.srs import apply_srs
+from evasion_od.ssa import apply_ssa
+
+
+def _apply_augmentation(
+    kind: str, adv: torch.Tensor, gt_resized: torch.Tensor
+) -> torch.Tensor:
+    if kind == "none":
+        return adv
+    if kind == "rrb":
+        return apply_rrb(adv, gt_resized)
+    if kind == "dim":
+        return apply_dim(adv)
+    if kind == "ssa":
+        return apply_ssa(adv)
+    if kind == "srs":
+        return apply_srs(adv, gt_resized)
+    raise ValueError(f"unknown augmentation: {kind!r}")
 
 
 def _scaled_gt_boxes(gt_boxes_xyxy: np.ndarray, data_sample, device) -> torch.Tensor:
@@ -59,8 +79,7 @@ def run_attack(
             grads = []
             for _ in range(cfg.num_masks):
                 adv = torch.clamp(clean_chw + delta, 0.0, 255.0)
-                if cfg.use_rrb:
-                    adv = apply_rrb(adv, gt_resized)
+                adv = _apply_augmentation(cfg.augmentation, adv, gt_resized)
                 batch = preprocess_batch(model, adv, resized.data_sample)
                 feats_adv = backbone_features(model, batch["inputs"])
                 loss = backbone_feature_loss(feats_adv, feats_clean, cfg.k)
