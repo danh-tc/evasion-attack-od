@@ -1,0 +1,280 @@
+Tôi sẽ phát biểu hướng #2 như một research hypothesis trước, chưa coi formulation dưới đây là final.
+
+### 1. Input → attack ở đâu → output
+
+**Input:** ảnh sạch (x), ground-truth boxes (B), một surrogate detector (f), ví dụ Faster R-CNN R50.
+
+**Attack location:** **intermediate backbone feature maps**, giống OSFD, không attack classification/regression head. Với stage (l):
+
+[
+F_l(x)\in\mathbb R^{C_l\times H_l\times W_l}.
+]
+
+Từ mỗi GT box, map xuống feature map và chia thành hai vùng:
+
+* (O_l): **object region**
+* (V_l): **vicinal/context region** bao quanh object.
+
+**Output:** adversarial image
+
+[
+x_{adv}=x+\delta,\qquad |\delta|_\infty\le\epsilon
+]
+
+sao cho unseen detectors bị giảm detection performance.
+
+---
+
+## 2. Ta attack cái gì?
+
+OSFD về cơ bản muốn **suppress significant object features + amplify vicinal features** bằng feature distortion.
+
+Tôi đề xuất không quan tâm absolute activation nữa mà attack **relative spatial relation**:
+
+[
+S_O(F) > S_V(F)
+]
+
+trong clean representation.
+
+Trong đó có thể bắt đầu đơn giản:
+
+[
+S_O=\frac{1}{|O|}\sum_{p\in O}|F(p)|_2
+]
+
+và tương tự (S_V).
+
+Attack cố **đảo relative margin**:
+
+[
+S_O(x_{adv}) < S_V(x_{adv}).
+]
+
+Một loss prototype:
+
+[
+L_{\text{rank}}
+===============
+
+\sum_l
+\max
+\left(
+0,,
+m+
+S_O^l(x_{adv})
+--------------
+
+S_V^l(x_{adv})
+\right).
+]
+
+Ta **minimize** loss này.
+
+Ví dụ clean:
+
+[
+S_O=3.8,\qquad S_V=1.7
+]
+
+sau attack:
+
+[
+S_O=2.4,\qquad S_V=2.8.
+]
+
+Ta không yêu cầu feature phải đạt một giá trị cụ thể; chỉ cần phá **ordering object > surroundings**.
+
+---
+
+## 3. Why?
+
+Hypothesis trung tâm là:
+
+> **Absolute feature values mang tính surrogate-specific hơn relative spatial organization của object representation.**
+
+ResNet và Swin có thể tạo feature magnitude rất khác nhau:
+
+[
+F_{\text{ResNet}}\neq F_{\text{Swin}}.
+]
+
+Nhưng để detect một object, cả hai có khả năng vẫn cần representation kiểu:
+
+[
+\text{object salient}
+
+>
+
+\text{surrounding irrelevant region}.
+]
+
+Do đó thay vì attack:
+
+> “hãy biến feature của Faster R-CNN thành giá trị X”
+
+ta attack property tổng quát hơn:
+
+> **“hãy làm object không còn nổi bật so với context của nó.”**
+
+Đây là điểm nối rất đẹp giữa hai uploaded papers:
+
+**OSFD**
+→ significant object features + vicinal features.
+
+**Context-Aware Attack**
+→ OD phụ thuộc vào spatial/contextual relationships.
+
+Hướng mới:
+
+[
+\boxed{
+\text{attack object-context relationship directly in backbone feature space}
+}
+]
+
+Và vì không dùng detector head nên vẫn giữ philosophy giảm detector-specific overfitting của OSFD.
+
+---
+
+# 4. Tôi sẽ không bắt đầu bằng full method
+
+Experiment đầu tiên nên chỉ kiểm chứng **hypothesis**.
+
+Giữ nguyên toàn bộ OSFD pipeline hiện tại và **chỉ thay loss**.
+
+### Phase 1 — Does the relation actually exist?
+
+Trước khi attack, lấy 100–500 clean images và đo:
+
+[
+R_l=\frac{S_O^l}{S_V^l}
+]
+
+ở từng backbone stage.
+
+Kiểm tra trên:
+
+ResNet-50, ResNet-101, ResNeXt, Swin.
+
+Câu hỏi:
+
+[
+P(S_O>S_V)=?
+]
+
+Nếu relationship này **không consistent across architectures**, idea chết sớm và ta không cần tốn GPU attack.
+
+Ngược lại, nếu ví dụ:
+
+[
+P(S_O>S_V)>80%-90%
+]
+
+trên nhiều architecture thì đây là evidence rất quan trọng cho hypothesis **shared relational property**.
+
+---
+
+### Phase 2 — Minimal attack
+
+Surrogate duy nhất:
+
+**Faster R-CNN R50.**
+
+So sánh:
+
+[
+\text{OSFD loss}
+\quad vs \quad
+\text{Rank loss}.
+]
+
+**Không RRB, không RaPA, không tricks.**
+
+Giữ cố định:
+
+[
+\epsilon,\ iterations,\ optimizer,\ dataset.
+]
+
+Evaluate trên chính target suite hiện tại.
+
+Điều tôi quan tâm nhất không phải white-box.
+
+Tôi muốn nhìn:
+
+[
+\Delta mAP_{\text{R50}}
+,\quad
+\Delta mAP_{\text{R101/X101}}
+,\quad
+\Delta mAP_{\text{Swin}}.
+]
+
+Nếu Rank loss white-box yếu hơn OSFD nhưng **Swin transfer tốt hơn**, đó lại là kết quả rất thú vị vì support đúng hypothesis.
+
+---
+
+### Phase 3 — Add RRB
+
+Nếu Phase 2 promising:
+
+[
+\text{Rank}
+\rightarrow
+\text{Rank + RRB}.
+]
+
+So trực tiếp với baseline mạnh nhất hiện tại:
+
+[
+\boxed{\text{OSFD + RRB}}
+]
+
+Đây mới là experiment quyết định method có practical value hay không.
+
+---
+
+### Phase 4 — hiểu mechanism
+
+Ablation ba loại loss:
+
+[
+L_O:\text{ chỉ suppress object}
+]
+
+[
+L_V:\text{ chỉ amplify vicinity}
+]
+
+[
+L_{rank}:\text{ phá relation }O>V.
+]
+
+Nếu
+
+[
+L_{rank} > L_O,L_V
+]
+
+về cross-architecture transfer, ta có evidence rằng **relationship**, chứ không chỉ feature suppression/amplification, tạo transferability.
+
+---
+
+### Một vấn đề cần giải quyết trước khi code
+
+Tôi chưa muốn chốt (S_O=\text{mean}|F|).
+
+Đây là phần quan trọng nhất của method. Có ít nhất ba candidate:
+
+[
+\text{activation magnitude},
+\quad
+\text{OSFD significance},
+\quad
+\text{normalized feature energy}.
+]
+
+Tôi sẽ làm **Phase 0 diagnostic** để xem metric nào thực sự cho `object > vicinity` ổn định nhất giữa ResNet/Swin. Metric thắng Phase 0 mới được dùng làm ranking loss.
+
+Nếu Phase 0 chứng minh tồn tại một **architecture-invariant object–context ordering**, lúc đó hướng này từ một intuition sẽ bắt đầu có nền tảng thực nghiệm khá mạnh.

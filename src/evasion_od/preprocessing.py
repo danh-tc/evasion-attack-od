@@ -52,6 +52,15 @@ def preprocess_batch(model, chw_uint8_range: torch.Tensor, data_sample) -> dict:
     return model.data_preprocessor(raw, False)
 
 
+def scale_gt_boxes(gt_boxes_xyxy: np.ndarray, data_sample, device) -> torch.Tensor:
+    """GT boxes (original-image pixel coords) -> resized-image pixel coords."""
+    if len(gt_boxes_xyxy) == 0:
+        return torch.zeros((0, 4), device=device)
+    sx, sy = data_sample.metainfo["scale_factor"]
+    scale = torch.tensor([sx, sy, sx, sy], device=device, dtype=torch.float32)
+    return torch.as_tensor(gt_boxes_xyxy, device=device, dtype=torch.float32) * scale
+
+
 def upscale_delta_to_original(delta_chw: torch.Tensor, ori_shape: tuple[int, int]) -> torch.Tensor:
     """Resize an attack-resolution perturbation back up to the original image size."""
     import torch.nn.functional as F

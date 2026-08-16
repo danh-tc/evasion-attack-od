@@ -1,0 +1,108 @@
+{
+  "experiment": "SPATIAL_ALL",
+  "attack_config": {
+    "epsilon": 5.0,
+    "alpha": 1.0,
+    "max_iterations": 100,
+    "momentum": 1.0,
+    "loss_type": "spatial",
+    "k": 3.0,
+    "rel_stage_weights": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "rel_r": 1.0,
+    "rel_min_margin_cells": 1,
+    "rel_lambda": 30.0,
+    "spatial_stage_weights": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    "mask_enabled": false,
+    "drop_prob": 0.05,
+    "mask_layer_types": [
+      "BatchNorm2d"
+    ],
+    "num_masks": 1,
+    "augmentation": "none",
+    "seed": 42
+  },
+  "n_images": 50,
+  "manifest": "dev_300",
+  "results": {
+    "faster_rcnn_r50_fpn": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 245,
+      "adv_matched": 168,
+      "asr": 0.3142857142857143,
+      "map_clean": 0.5005597198851288,
+      "map_adv": 0.3133404526969367,
+      "map_drop": 0.1872192671881921
+    },
+    "fcos_r50": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 192,
+      "adv_matched": 173,
+      "asr": 0.09895833333333333,
+      "map_clean": 0.48109632962540644,
+      "map_adv": 0.43603206428080893,
+      "map_drop": 0.04506426534459751
+    },
+    "deformable_detr": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 240,
+      "adv_matched": 194,
+      "asr": 0.19166666666666668,
+      "map_clean": 0.5348160921586077,
+      "map_adv": 0.4177246072740114,
+      "map_drop": 0.11709148488459631
+    },
+    "yolov3_d53": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 213,
+      "adv_matched": 207,
+      "asr": 0.028169014084507043,
+      "map_clean": 0.45590330518339334,
+      "map_adv": 0.44993336964245306,
+      "map_drop": 0.005969935540940274
+    },
+    "yolox_l": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 248,
+      "adv_matched": 240,
+      "asr": 0.03225806451612903,
+      "map_clean": 0.5920336204647455,
+      "map_adv": 0.5681401034929824,
+      "map_drop": 0.023893516971763118
+    },
+    "mask_rcnn_swin_t": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 266,
+      "adv_matched": 245,
+      "asr": 0.07894736842105263,
+      "map_clean": 0.5359534279694574,
+      "map_adv": 0.5101678328611925,
+      "map_drop": 0.025785595108264947
+    },
+    "dino_swin_l": {
+      "n_images": 50,
+      "n_gt": 329,
+      "clean_matched": 275,
+      "adv_matched": 265,
+      "asr": 0.03636363636363636,
+      "map_clean": 0.6627175792991177,
+      "map_adv": 0.6363928447640198,
+      "map_drop": 0.02632473453509787
+    }
+  }
+}

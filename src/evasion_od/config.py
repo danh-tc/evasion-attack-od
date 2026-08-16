@@ -150,8 +150,32 @@ class AttackConfig:
     max_iterations: int = 100
     momentum: float = 1.0
 
-    # Loss: L = sum_i mean_j (F_adv_ij - k * F_clean_ij)^2 ; k=1 -> NRDM, k=3 -> OSFD
+    # Loss: "osfd" -> L = sum_i mean_j (F_adv_ij - k*F_clean_ij)^2 (k=1 -> NRDM,
+    # k=3 -> OSFD); "rel" -> relational contrast loss, standalone (idea.txt
+    # Phase 2, see results/P2_rel_*_go.json -- NOGO, lost to E1 on 7/7
+    # models); "osfd_rel_hybrid" -> OSFD + lambda * relational_diff
+    # regularizer (Phase 2 follow-up, also NOGO, results/P2_hybrid_*_go.json);
+    # "spatial" -> dense per-pixel object-to-context feature misalignment
+    # (Phase 1b, results/P1b_prototype_diagnostic.json), see losses.py.
+    loss_type: str = "osfd"
     k: float = 3.0
+
+    # "rel"/"osfd_rel_hybrid" only: per-surrogate-backbone-stage weights (must
+    # match the surrogate's stage count -- 4 for faster_rcnn_r50_fpn). e.g.
+    # (0,0,0,1) attacks only the deepest stage, (.25,.25,.25,.25) all equally.
+    rel_stage_weights: tuple[float, ...] = (0.0, 0.0, 0.0, 1.0)
+    rel_r: float = 1.0
+    rel_min_margin_cells: int = 1
+    # "osfd_rel_hybrid" only: weight on the relational_diff regularizer term.
+    # Must be calibrated against L_OSFD's scale -- measured |L_OSFD|/|L_relD|
+    # ~50-85x on a sample image, so lambda=O(1) makes it negligible; use
+    # lambda~10-100 for it to meaningfully influence the gradient.
+    rel_lambda: float = 30.0
+
+    # "spatial" only: per-surrogate-backbone-stage weights for
+    # spatial_misalignment_loss (same convention/stage-count as rel_stage_weights;
+    # region construction reuses rel_r/rel_min_margin_cells above).
+    spatial_stage_weights: tuple[float, ...] = (0.25, 0.25, 0.25, 0.25)
 
     # RaPA DropConnect masking, scoped to backbone only
     mask_enabled: bool = False
@@ -244,5 +268,90 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
         "E9_osfd_rrb_spectral": ExperimentSpec(
             "E9_osfd_rrb_spectral",
             AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_spectral"),
+        ),
+        # Phase 2 (idea.txt): relational contrast loss vs OSFD (E1), no RRB/
+        # RaPA -- isolates whether attacking the object-vicinity relation
+        # itself (Phase 1-validated in results/phase0_diagnostic.json)
+        # transfers better than OSFD's absolute suppress/amplify. Stage
+        # indices are the surrogate's own 4 backbone stages (0..3). Result:
+        # NOGO -- REL_S23 (best of the 3) lost to E1 on 7/7 models, see
+        # results/P2_rel_s23_go.json. Kept for the record / re-running.
+        "REL_S3": ExperimentSpec(
+            "REL_S3",
+            AttackConfig(
+                loss_type="rel", rel_stage_weights=(0.0, 0.0, 0.0, 1.0),
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "REL_S23": ExperimentSpec(
+            "REL_S23",
+            AttackConfig(
+                loss_type="rel", rel_stage_weights=(0.0, 0.0, 0.5, 0.5),
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "REL_ALL": ExperimentSpec(
+            "REL_ALL",
+            AttackConfig(
+                loss_type="rel", rel_stage_weights=(0.25, 0.25, 0.25, 0.25),
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        # Phase 2 follow-up: does relational_diff (unbounded D, doesn't
+        # saturate like standalone REL's bounded C) help as a regularizer
+        # ON TOP of OSFD, rather than replacing it? Stage weights fixed to
+        # S23 (best of the 3 standalone REL variants). lambda swept across
+        # the calibrated ~50-85x scale gap between L_OSFD and L_relD.
+        "HYBRID_L10": ExperimentSpec(
+            "HYBRID_L10",
+            AttackConfig(
+                loss_type="osfd_rel_hybrid", k=3.0,
+                rel_stage_weights=(0.0, 0.0, 0.5, 0.5), rel_lambda=10.0,
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "HYBRID_L30": ExperimentSpec(
+            "HYBRID_L30",
+            AttackConfig(
+                loss_type="osfd_rel_hybrid", k=3.0,
+                rel_stage_weights=(0.0, 0.0, 0.5, 0.5), rel_lambda=30.0,
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "HYBRID_L100": ExperimentSpec(
+            "HYBRID_L100",
+            AttackConfig(
+                loss_type="osfd_rel_hybrid", k=3.0,
+                rel_stage_weights=(0.0, 0.0, 0.5, 0.5), rel_lambda=100.0,
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        # Phase 1b/2-followup: dense per-pixel object-to-context feature
+        # misalignment, standalone (not a hybrid -- Phase 2's hybrid attempt
+        # showed adding a second gradient direction to OSFD hurts rather than
+        # helps, see HYBRID_* above). Phase 1b (results/P1b_prototype_diagnostic.json)
+        # showed this quantity is architecture-invariant even where the
+        # Phase 1 mean-pooled S_O/S_V metric had reversed (YOLOX stage 2), so
+        # sweeping the same S3/S23/ALL stage-weight variants as standalone REL.
+        "SPATIAL_S3": ExperimentSpec(
+            "SPATIAL_S3",
+            AttackConfig(
+                loss_type="spatial", spatial_stage_weights=(0.0, 0.0, 0.0, 1.0),
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "SPATIAL_S23": ExperimentSpec(
+            "SPATIAL_S23",
+            AttackConfig(
+                loss_type="spatial", spatial_stage_weights=(0.0, 0.0, 0.5, 0.5),
+                mask_enabled=False, augmentation="none",
+            ),
+        ),
+        "SPATIAL_ALL": ExperimentSpec(
+            "SPATIAL_ALL",
+            AttackConfig(
+                loss_type="spatial", spatial_stage_weights=(0.25, 0.25, 0.25, 0.25),
+                mask_enabled=False, augmentation="none",
+            ),
         ),
     }

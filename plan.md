@@ -222,3 +222,28 @@ Nghi ngờ lớn nhất về tính chặt chẽ hiện tại: (p*=0.05, S*=3) đ
 Fix bug E3 (đã chẩn đoán, rẻ) — cần để ma trận đối chiếu E1/E3/E4/E5 hoàn chỉnh, hiện đang thiếu 1 ô kiểm chứng quan trọng (NRDM đứng một mình, không mask).
 Việc mở rộng mask sang Conv (I2) hay stage-wise ablation (I3) — nên hoãn tiếp cho tới khi (1) trả lời xong, vì nếu nguyên nhân I4 không thắng là do sai hyperparameter chứ không phải giới hạn cơ chế, thì I2/I3 cũng sẽ dẫm lại vết đó.
 Trade-off: hướng (1) rẻ, tái dùng hạ tầng sẵn có, trả lời trực tiếp câu hỏi "RaPA có thật sự bão hòa hay đang bị đo sai điểm vận hành" — nên làm trước. Hướng "thiết kế loss mới cho RaPA-OD" (đã bàn ở lượt trước) chỉ nên cân nhắc sau khi (1) và (2) loại trừ được nguyên nhân do thiết lập thí nghiệm.
+
+## 3. idea.txt exploration — object-context relational hypothesis (Phase 1 / 1b / 2)
+
+Hướng riêng, độc lập với RaPA/RRB ở trên: thay vì suppress+amplify absolute feature (OSFD) hay mask parameter (RaPA), attack trực tiếp **quan hệ tương đối object-vs-vicinity** trong backbone feature space (`idea.txt`). Toàn bộ mã nguồn: `src/evasion_od/regions.py` (mask O/V, các score/prototype), `src/evasion_od/losses.py` (các loss `rel`/`osfd_rel_hybrid`/`spatial`), wiring trong `attack.py`/`config.py` qua `loss_type`.
+
+**Phase 1 — quan hệ `S_O > S_V` có tồn tại nhất quán qua kiến trúc không? (`results/phase0_diagnostic.json`, 200 ảnh × 7 model × 3 giá trị r)**
+- Metric `normalized energy` (M2, chuẩn hoá per-channel trước khi so vùng) vượt hẳn `magnitude` thô (M1): pooled `P(S_O>S_V)` 0.85 vs 0.81 trên 25 cặp model×stage, và M1 suy biến gần như hoàn toàn trên backbone Swin (`var_contrast≈0.0000` mọi stage — nghi do LayerNorm khiến norm mỗi vị trí gần constant).
+- 1 exception thật, không phải nhiễu: `yolox_l` stage cuối (CSPNet) đảo dấu nhất quán (`P(S_O>S_V)≈0.10-0.15`, `mean_contrast` âm, variance vừa phải — không phải scatter ngẫu nhiên).
+- `r` (bề rộng vành vicinity, quét 0.5/1.0/2.0) gần như không ảnh hưởng kết luận.
+- **Kết luận: GO có điều kiện** — dùng M2, loại/không dựa vào stage cuối CSPNet.
+
+**Phase 2 — attack trực tiếp quan hệ đó có transfer tốt hơn OSFD không? (`results/P2_*_go.json`, 50 ảnh, T=100, đủ 7 model, so với `E1_osfd_baseline_go.json`)**
+
+| # | Loss | avg mAP-drop black-box | Ghi chú |
+|---|---|---|---|
+| E1 (baseline) | OSFD (k=3) | **0.111** | — |
+| REL_S3/S23/ALL | `C_clean·C_adv` (bounded contrast, mean-pooled/stage) | 0.030–0.038 | Sanity-check xác nhận optimization đúng hướng (loss hội tụ, `C_adv→-1`) nhưng **bão hòa sau ~20/100 iteration**, lãng phí phần lớn budget |
+| HYBRID_L10/30/100 | `L_OSFD − λ·relational_diff` (unbounded D, cộng thêm vào OSFD) | 0.036–0.047 | λ hiệu chỉnh theo tỷ lệ đo thực tế (`\|L_OSFD\|/\|L_relD\|≈50-85x` — λ∈{0.1,0.5,1.0} ban đầu đề xuất sẽ vô nghĩa). Kết quả đơn điệu giảm theo λ (càng thêm REL càng tệ) → nghi ngờ gradient hai loss **xung đột hướng**, không chỉ lệch scale |
+| SPATIAL_S3/S23/ALL | dense per-pixel `mean_{p∈O}[cos(F_adv(p),μ_O)−cos(F_adv(p),μ_V)]` | 0.032–0.045 | Không bão hòa (loss vẫn giảm tới iteration 99, khác hẳn REL) nhưng vẫn không thắng E1 |
+
+**Phase 1b — trước khi tin SPATIAL, validate quantity mới trên ảnh sạch (`results/P1b_prototype_diagnostic.json`, 200 ảnh × 7 model × 3 r):** `P(margin>0)=1.000` (hoặc 0.995) trên **toàn bộ** model×stage, kể cả `yolox_l` stage cuối — nơi Phase 1 từng đảo dấu — giờ cho tín hiệu **mạnh nhất** bảng (`mean_margin=0.349`). Đây là bằng chứng sạch hơn hẳn Phase 1 (không có exception nào), nhưng attack tương ứng (SPATIAL_*) vẫn NOGO — xem trên.
+
+**Kết luận tổng hợp Phase 1/1b/2 (9 config relational-family đã chạy, tất cả NOGO so với E1):** quan hệ object-context tồn tại thật và **đo được nhất quán qua kiến trúc** (đặc biệt rõ với công thức prototype-cosine ở Phase 1b), và **có thể đảo được bằng attack** (verify trực tiếp qua hội tụ loss ở cả REL và SPATIAL) — nhưng đảo nó **không đủ sức phá decision boundary thật của detector** theo cách OSFD's dense per-pixel MSE làm được, dù thử 3 công thức hoá độc lập (bounded contrast, unbounded diff/hybrid, dense cosine-to-prototype). Đóng nhánh "relational loss thay OSFD" tại đây; E2 (OSFD+RRB) vẫn là baseline mạnh nhất toàn dự án.
+
+**Hướng tiếp theo (đang chuẩn bị, chưa chạy): Phase G0 — RRB Gradient Mechanism Analysis.** Câu hỏi đổi từ "loss nào tốt hơn OSFD?" sang "RRB đang giúp OSFD bằng cơ chế gì?" — vì E1→E2 là bước nhảy transferability lớn nhất đã quan sát được trong toàn bộ dự án, lớn hơn nhiều so với bất kỳ thay đổi loss nào ở Phase 2. Ý tưởng: lấy K gradient từ K RRB view khác nhau của cùng ảnh, đo pairwise cosine similarity + per-pixel sign-agreement giữa chúng, rồi test causal bằng 3 hướng update cùng compute budget (`mean` vs `consensus-weighted theo sign-agreement` vs `disagreement-weighted` như control). GO nếu consensus thắng mean rõ rệt trên Group B/C.
