@@ -184,14 +184,48 @@ class AttackConfig:
     # Number of independent stochastic forward/backward passes averaged per
     # PGD step. "S" in the RaPA paper (independent masks) / "--masks" in
     # run_sweep.py; also doubles as SSA's "N" independent spectral copies
-    # (new-plan.txt Sec 5.2.D) when augmentation="ssa".
+    # (new-plan.txt Sec 5.2.D) when augmentation="ssa", and as Phase G0's "K"
+    # independent RRB views (plan.md, see grad_combine below) when
+    # augmentation="rrb".
     num_masks: int = 1
+
+    # Phase G0 (plan.md "RRB Gradient Mechanism Analysis") only: how the K
+    # per-view gradients (K = num_masks) are combined into one MI-FGSM update
+    # direction each iteration. "mean" is the pre-G0 behavior used by every
+    # other experiment (E1-E9/I4/REL_*/HYBRID_*/SPATIAL_*). "consensus"/
+    # "disagree" weight the mean gradient by (C_p)^gamma / (1-C_p)^gamma,
+    # where C_p in [0,1] is the per-coordinate cross-view sign-agreement
+    # (gradient_diagnostics.py); "consensus_shuffle" is the spatial-shuffle
+    # control for "consensus" (same weight distribution, wrong positions).
+    grad_combine: str = "mean"
+    grad_combine_gamma: float = 1.0
+    # Phase G0 causal comparisons only (e.g. RRB_K5_MEAN vs RRB_K5_CONS):
+    # when True, reseeds Python's/PyTorch's RNG deterministically as a
+    # function of (seed, image_id, iteration, k-index) right before each of
+    # the K augmentation draws, so two runs that only differ in
+    # grad_combine see the *same* K RRB views (rotation angle, resize scale,
+    # noise) at every corresponding (image, iteration, k) -- "common random
+    # numbers" variance reduction, isolating grad_combine as the only real
+    # difference between the two trajectories instead of confounding it with
+    # independently-sampled augmentation. Off by default (every non-G0
+    # experiment, and the original G0 4-variant design, sampled freely).
+    deterministic_augmentation: bool = False
 
     # Input-level augmentation applied to the adversarial image before the
     # surrogate forward pass. "none" (E1/E3/E4/E5) / "rrb" (OSFD's rotation +
-    # resize + blur, E2/I4) / "dim" / "ssa" / "srs" (new-plan.txt Sec 5.2) /
-    # "rrb_spectral" (Option A: spectral on top of unmodified RRB, E9).
+    # resize + noise, E2/I4) / "dim" / "ssa" / "srs" (new-plan.txt Sec 5.2) /
+    # "rrb_spectral" (Option A: spectral on top of unmodified RRB, E9) /
+    # "rrb_rot"/"rrb_resize"/"rrb_noise"/"rrb_rot_resize" (Phase B1 component
+    # ablation) / "fixed_scale" (Phase S0 scale sweep, uses `fixed_scale`
+    # below instead of RRB's randomized resize).
     augmentation: str = "none"
+    # "fixed_scale" only: deterministic global scale factor (Phase S0).
+    fixed_scale: float = 1.0
+    # "rrb_occupancy" only: random content-occupancy range for
+    # `random_occupancy_resize`, replacing RRB's `adaptive_random_resizing`
+    # (Phase S1 "Bidirectional/Shrink-aware RRB").
+    occ_low: float = 0.7
+    occ_high: float = 1.0
 
     seed: int = 42
 
@@ -353,5 +387,111 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
                 loss_type="spatial", spatial_stage_weights=(0.25, 0.25, 0.25, 0.25),
                 mask_enabled=False, augmentation="none",
             ),
+        ),
+        # Phase G0 (plan.md "RRB Gradient Mechanism Analysis"): does RRB's
+        # E1->E2 transfer jump come from a stable cross-view gradient
+        # subspace? Same K=5 RRB views MI-FGSM would sample per iteration
+        # anyway (num_masks=5, matched compute budget across all four
+        # variants) -- only the combine rule differs. CONS_SHUFFLE is the
+        # spatial-shuffle control for CONS: same consensus-weight
+        # distribution, positions permuted, isolating whether *where*
+        # consensus occurs matters (not just how weighting affects gradient
+        # magnitude). Run via scripts/run_g0_diagnostic.py, not run_attack.py
+        # (needs per-image/per-checkpoint gradient logging run_attack.py
+        # doesn't do).
+        "RRB_K5_MEAN": ExperimentSpec(
+            "RRB_K5_MEAN",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb", num_masks=5, grad_combine="mean",
+            ),
+        ),
+        "RRB_K5_CONS": ExperimentSpec(
+            "RRB_K5_CONS",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb", num_masks=5, grad_combine="consensus",
+            ),
+        ),
+        "RRB_K5_DISAGREE": ExperimentSpec(
+            "RRB_K5_DISAGREE",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb", num_masks=5, grad_combine="disagree",
+            ),
+        ),
+        "RRB_K5_CONS_SHUFFLE": ExperimentSpec(
+            "RRB_K5_CONS_SHUFFLE",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb", num_masks=5,
+                grad_combine="consensus_shuffle",
+            ),
+        ),
+        # Phase B1 (plan.md "RRB Component Ablation"): E1->E2 (adding RRB) is
+        # the largest transferability jump in the project; this attributes it
+        # to rotation, adaptive resize, additive noise (mislabeled "blur" in
+        # the original OSFD code -- see rrb.py), or their interaction, by
+        # running each component (and combinations) standalone against the
+        # same E1/E2 reference points. Run via scripts/run_b1_ablation.py.
+        "OSFD_ROT": ExperimentSpec(
+            "OSFD_ROT", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_rot")
+        ),
+        "OSFD_RESIZE": ExperimentSpec(
+            "OSFD_RESIZE", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_resize")
+        ),
+        "OSFD_NOISE": ExperimentSpec(
+            "OSFD_NOISE", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_noise")
+        ),
+        "OSFD_ROT_RESIZE": ExperimentSpec(
+            "OSFD_ROT_RESIZE", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_rot_resize")
+        ),
+        # Same config as E2 (full RRB), re-run at Phase B1's own pilot scale
+        # so it's a fair same-scale reference point for the other 4 ablation
+        # arms rather than reusing E2's 50-image/T=100 numbers directly.
+        "OSFD_RRB_FULL": ExperimentSpec(
+            "OSFD_RRB_FULL", AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb")
+        ),
+        # Phase S1 (plan.md "Bidirectional/Shrink-aware RRB"): full RRB
+        # (rotation+noise unchanged) with `random_occupancy_resize` replacing
+        # `adaptive_random_resizing`, sampling occupancy ranges that actually
+        # reach the occupancy~0.8 region Phase S0 found DINO-Swin-L benefits
+        # from (RRB's own resize nets out to occupancy~[0.91,1.0], too
+        # narrow to get there). RRB_ORIG reference = OSFD_RRB_FULL above
+        # (same config, no separate entry needed).
+        "RRB_SHRINK": ExperimentSpec(
+            "RRB_SHRINK",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb_occupancy", occ_low=0.7, occ_high=0.9
+            ),
+        ),
+        "RRB_BIDIR": ExperimentSpec(
+            "RRB_BIDIR",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb_occupancy", occ_low=0.7, occ_high=1.0
+            ),
+        ),
+        # Phase S2 (plan.md "Trajectory Consistency"): S1's RRB_SHRINK/BIDIR
+        # both underperformed RRB_ORIG on every target including DINO-Swin-L
+        # -- the opposite of what S0's fixed-scale diagnostic predicted.
+        # Reconciles the two: resize-only (no rotation/noise, matching S0's
+        # isolation), same occupancy range [0.7,0.9], only difference is
+        # whether occupancy is drawn once per image (held for the whole
+        # trajectory, like S0) or resampled every iteration (like S1/RRB).
+        "FIXED_SHRINK": ExperimentSpec(
+            "FIXED_SHRINK",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="fixed_shrink_per_image",
+                occ_low=0.7, occ_high=0.9,
+            ),
+        ),
+        "RANDOM_SHRINK": ExperimentSpec(
+            "RANDOM_SHRINK",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="random_shrink", occ_low=0.7, occ_high=0.9
+            ),
+        ),
+        # Same computation as S0's scale=0.8 sweep point (fixed_scale=0.8 ->
+        # occupancy=0.8, constant across every image) -- kept as a named
+        # config for standalone reruns, but the S2 pilot script reuses S0's
+        # already-computed results/S0_scale_transfer_sweep_v2.json instead.
+        "FIXED_0.8": ExperimentSpec(
+            "FIXED_0.8", AttackConfig(k=3.0, mask_enabled=False, augmentation="fixed_scale", fixed_scale=0.8)
         ),
     }

@@ -163,3 +163,27 @@ def evaluate(
         map_adv=map_adv,
         map_drop=map_clean - map_adv,
     )
+
+
+def per_image_asr(
+    image_ids: list[int],
+    gt_by_image: dict[int, tuple[np.ndarray, np.ndarray]],
+    clean_dets: dict[int, ImageDetections],
+    adv_dets: dict[int, ImageDetections],
+) -> dict[int, float | None]:
+    """Per-image ASR, mirroring `evaluate`'s aggregate ratio-of-sums ASR but
+    kept per image (None where the clean detector matched zero GT, same
+    convention as the aggregate). Phase G0 (plan.md) correlates this against
+    per-image gradient agreement (gradient_diagnostics.py) -- per-image mAP
+    isn't used for that: COCOeval AP on a single image's handful of GT boxes
+    is too noisy to be a meaningful correlate, unlike ASR which is just a
+    box-matching ratio and stays well-defined per image.
+    """
+    out: dict[int, float | None] = {}
+    for image_id in image_ids:
+        gt_boxes, gt_cat_ids = gt_by_image[image_id]
+        cd, ad = clean_dets[image_id], adv_dets[image_id]
+        clean_matched = count_matched_gt(gt_boxes, gt_cat_ids, cd.bboxes, cd.cat_ids, cd.scores)
+        adv_matched = count_matched_gt(gt_boxes, gt_cat_ids, ad.bboxes, ad.cat_ids, ad.scores)
+        out[image_id] = None if clean_matched == 0 else (clean_matched - adv_matched) / clean_matched
+    return out

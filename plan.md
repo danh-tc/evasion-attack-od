@@ -246,4 +246,204 @@ Hướng riêng, độc lập với RaPA/RRB ở trên: thay vì suppress+amplif
 
 **Kết luận tổng hợp Phase 1/1b/2 (9 config relational-family đã chạy, tất cả NOGO so với E1):** quan hệ object-context tồn tại thật và **đo được nhất quán qua kiến trúc** (đặc biệt rõ với công thức prototype-cosine ở Phase 1b), và **có thể đảo được bằng attack** (verify trực tiếp qua hội tụ loss ở cả REL và SPATIAL) — nhưng đảo nó **không đủ sức phá decision boundary thật của detector** theo cách OSFD's dense per-pixel MSE làm được, dù thử 3 công thức hoá độc lập (bounded contrast, unbounded diff/hybrid, dense cosine-to-prototype). Đóng nhánh "relational loss thay OSFD" tại đây; E2 (OSFD+RRB) vẫn là baseline mạnh nhất toàn dự án.
 
-**Hướng tiếp theo (đang chuẩn bị, chưa chạy): Phase G0 — RRB Gradient Mechanism Analysis.** Câu hỏi đổi từ "loss nào tốt hơn OSFD?" sang "RRB đang giúp OSFD bằng cơ chế gì?" — vì E1→E2 là bước nhảy transferability lớn nhất đã quan sát được trong toàn bộ dự án, lớn hơn nhiều so với bất kỳ thay đổi loss nào ở Phase 2. Ý tưởng: lấy K gradient từ K RRB view khác nhau của cùng ảnh, đo pairwise cosine similarity + per-pixel sign-agreement giữa chúng, rồi test causal bằng 3 hướng update cùng compute budget (`mean` vs `consensus-weighted theo sign-agreement` vs `disagreement-weighted` như control). GO nếu consensus thắng mean rõ rệt trên Group B/C.
+**Hướng tiếp theo: Phase G0 — RRB Gradient Mechanism Analysis (mục 4 bên dưới).**
+
+## 4. Phase G0 — RRB Gradient Mechanism Analysis
+
+Câu hỏi đổi từ "loss/augmentation nào tốt hơn?" sang "RRB đang giúp OSFD transfer bằng cơ chế gì?" — vì E1→E2 (thêm RRB) là bước nhảy transferability lớn nhất quan sát được trong toàn dự án, lớn hơn hẳn mọi biến thể loss ở mục 3 hay augmentation ở mục 2. Mã nguồn: `src/evasion_od/gradient_diagnostics.py` (consensus map, pairwise cosine, combine rule), wiring trong `attack.py` (trục `grad_combine`, hook đo checkpoint ngay trên trajectory đang chạy — không tách pass riêng) và `runner.py` (`generate_adversarial_with_diagnostics`, `evaluate_on_model_per_image`); script chạy: `scripts/run_g0_diagnostic.py`.
+
+**Thiết kế:**
+- Mỗi iteration, K=5 RRB view độc lập của cùng ảnh (tái dùng cơ chế `num_masks` sẵn có, `augmentation="rrb"`, không RaPA mask), tính gradient loss OSFD (k=3) từng view g_1..g_5, cùng coordinate system với `delta` — rotation/resize/"blur" trong `rrb.py` đều differentiable native (torchvision `rotate`, `F.interpolate`/`F.pad`, cộng nhiễu trực tiếp), autograd tự chain-rule đúng về `delta`, đã verify so khớp với `reference-repo/OSFD/attack/base/RRB.py` (kể cả phát hiện phụ: "gaussian_blur" ở cả bản gốc lẫn port này thực chất là cộng nhiễu Gaussian i.i.d., không phải blur kernel thật — không phải bug, chỉ là tên gây hiểu lầm kế thừa từ code gốc).
+- **Phần 1 — correlational, đo trên trajectory thật của `RRB_K5_MEAN` (T=100):** tại checkpoint t∈{0,25,50,75,99}, log mean/median pairwise cosine, consensus map C_p=|mean_k sign(g_k,p)|, E[C_p], P(C_p>0.6), P(C_p>0.8), variance chuẩn hoá V=E_p[Var_k(g_k,p)]/(E_p[ḡ_p²]+ε).
+- **Phần 2 — causal, cùng compute budget (K=5 forward/backward/iteration ở cả 4 variant):**
+  - `RRB_K5_MEAN` — baseline, ḡ = mean_k g_k (cách kết hợp gradient mặc định trước Phase G0, tương đương cơ chế `num_masks` cũ)
+  - `RRB_K5_CONS` — g_cons = C^γ ⊙ ḡ (γ=1)
+  - `RRB_K5_DISAGREE` — g_dis = (1-C)^γ ⊙ ḡ, control ngược lại
+  - `RRB_K5_CONS_SHUFFLE` — như CONS nhưng C bị shuffle theo spatial (H,W), giữ nguyên channel + phân phối giá trị — control tách "vị trí consensus xảy ra ở đâu" khỏi "trọng số ảnh hưởng magnitude gradient nói chung"
+- **Correlation:** A_i^traj (primary) = trung bình E[C_p] qua 5 checkpoint; A_i^final (secondary) = E[C_p] tại t=99 (cùng cặp cho P(C>0.8): high_traj/high_final). Correlate (Pearson + Spearman) với per-image ASR trên từng target + pooled theo Group A/B/C — dùng ASR (không phải mAP) vì mAP trên 1 ảnh đơn lẻ quá nhiễu để làm biến correlate có ý nghĩa.
+
+**Tiêu chí GO/NOGO:** GO nếu CONS thắng MEAN rõ rệt (≥10% relative avg black-box hoặc nhất quán ≥4/6 target), đặc biệt ở Group B/C. Strong GO nếu gain tập trung ở Group B/C (YOLO/Swin), không chỉ white-box/Group A. NOGO nếu CONS ≤ MEAN, hoặc chỉ tăng ở white-box/Group A. CONS > CONS_SHUFFLE ≈ MEAN là bằng chứng thêm rằng vị trí consensus (không chỉ độ lớn) mới là thứ tạo giá trị.
+
+**Trạng thái: đóng nhánh, NO-GO — thay full run (~6h) bằng 2-stage cheap screen (~15 phút tổng) vì mục tiêu chỉ là GO/NO-GO ban đầu.**
+
+**Stage 1 (20 ảnh, T=30, K=3, diagnostic-only, checkpoints 0/15/29):** phát hiện quan trọng khi đọc kết quả — tiêu chí gốc "E[C]≈0 → NO-GO" giả định sai baseline: với K=3, sign-agreement dưới null hypothesis (hoàn toàn không có consensus) đã bằng **E[C]_null=0.5** (không phải 0, tính từ phân phối Binomial(3,0.5) của số view đồng thuận), và P(C=1)_null=0.25. Đọc đúng phải qua **excess-over-null**: E[C] excess tăng từ +0.002 (t=0) lên +0.024 (t=29); `mean_pairwise_cosine` (không có null-offset, vì 2 vector ngẫu nhiên độc lập trong không gian ~triệu chiều có cosine kỳ vọng ≈0, độ lệch chuẩn ~1/√d) tăng từ 0.067→0.138 — hàng trăm lần độ lệch chuẩn null, gần chắc chắn là tín hiệu thật. Kết luận Stage 1: consensus gần null lúc đầu trajectory, xây dần khi attack hội tụ — đủ tín hiệu biên để đáng bỏ thêm 1 pilot causal ngắn.
+
+**Stage 2 (30 ảnh, T=50, K=3, γ=1, `RRB_K5_MEAN` vs `RRB_K5_CONS`, matched RRB views giữa 2 run — xem `AttackConfig.deterministic_augmentation`, reseed RNG theo (seed,image_id,iteration,k_idx) để cô lập grad_combine là biến duy nhất khác nhau, verify bằng unit test cùng-seed-cho-output-giống-hệt):**
+
+| Target | MEAN map_drop | CONS map_drop | Δ relative |
+|---|---|---|---|
+| White-box (FRCNN) | 0.441 | 0.440 | −0.2% |
+| FCOS (A) | 0.394 | 0.383 | −2.8% |
+| YOLOX (B) | 0.271 | 0.245 | −9.6% |
+| DINO-Swin-L (C) | 0.163 | 0.178 | +9.2% |
+| **Avg BB** | **0.276** | **0.269** | **−2.5%** |
+
+**NO-GO theo cả 3 tiêu chí đã đặt:** primary (AvgBB_CONS>AvgBB_MEAN) fail; consistency (≥2/3 target A/B/C) chỉ đạt 1/3 (DINO); cross-family fail vì YOLOX giảm thật (−9.6%, không phải nhiễu). Diễn giải khớp với lo ngại đã nêu trước khi chạy: consensus chỉ rõ dần về sau trajectory (Stage 1), nên linear weighting `C^1⊙ḡ` áp toàn bộ trajectory ngay từ t≈0 (lúc C gần null, chưa phân biệt được vùng consensus thật) làm suy yếu gradient khá đồng đều — thiệt hại rõ ở target cần tín hiệu mạnh sớm (FCOS/YOLOX), trong khi DINO-Swin (khó nhất, có lẽ ít nhạy early-iteration hơn) lại nhích lên nhẹ. Phụ chú: ASR của DINO gần như không đổi dù map_drop tăng — gain đến từ suy giảm confidence trên object vẫn bị detect, không phải object biến mất thêm.
+
+**Đóng nhánh Gradient Consensus tại đây** (không chạy DISAGREE/CONS_SHUFFLE/full K=5×4-variant — không còn giá trị marginal khi causal test chính đã NO-GO). Code (`gradient_diagnostics.py`, `grad_combine` axis, `--variants`/`--diagnostic-only`/matched-views trong `run_g0_diagnostic.py`) giữ nguyên trong repo cho khả năng tái dùng sau (vd nếu có formulation "trajectory-aware" mới muốn test), nhưng không đầu tư thêm compute vào hướng này trừ khi có lý do mới. File: `results/G0_stage1_diagnostic.json`, `results/G0_stage2_cheap_causal.json`.
+
+## 5. Phase B1 — RRB Component Ablation
+
+G0 đóng lại với kết luận "RRB tốt nhưng cơ chế gradient-consensus không giải thích được vì sao" — bước tiếp theo lùi lại một tầng câu hỏi khác: **component nào của RRB (rotation, resize, noise) thực sự tạo ra transferability**, thay vì tiếp tục dò cơ chế gradient. Cùng surrogate/loss (OSFD k=3)/eps/alpha/iterations như E1/E2, chỉ thay augmentation. Mã nguồn: `rrb.py` (`apply_resize_only`, `apply_rotation_resize`, `additive_gaussian_noise` — đổi tên từ `gaussian_blur` cho đúng bản chất, chỉ là cộng nhiễu i.i.d. per-pixel, không phải blur kernel), wiring trong `attack.py` (`rrb_rot`/`rrb_resize`/`rrb_noise`/`rrb_rot_resize`), 5 experiment mới trong `config.py`, script: `scripts/run_b1_ablation.py`.
+
+**5 config, pilot 30 ảnh/T=50, evaluate FRCNN (white-box) + FCOS/YOLOX/DINO-Swin-L (đại diện A/B/C):**
+- `OSFD_ROT` — chỉ rotation
+- `OSFD_RESIZE` — chỉ adaptive resize
+- `OSFD_NOISE` — chỉ additive Gaussian noise
+- `OSFD_ROT_RESIZE` — rotation + resize, không noise
+- `OSFD_RRB_FULL` — cả 3 (= config E2, chạy lại ở scale pilot để so sánh cùng-scale công bằng với 4 arm kia thay vì dùng thẳng số E2 ở scale 50/T100 khác)
+
+**Tiêu chí đọc:** Strong GO nếu 1 component/tổ hợp giải thích ≥70-80% gain E1→full RRB trên avg BB và tốt ở B/C. GO nếu có ranking rõ (vd RESIZE>ROT>NOISE) và component đứng đầu thắng E1 rõ ở ≥2/3 target đại diện. Interesting GO nếu từng component riêng lẻ yếu nhưng tổ hợp cho synergy rõ rệt (Drop_{A+B} > Drop_A + gain kỳ vọng riêng của B) → hướng nghiên cứu chuyển sang "augmentation interaction". NO-GO nếu mọi component/tổ hợp cho kết quả gần nhau hoặc bất ổn, không có pattern cross-family rõ — khi đó B1 chỉ xác nhận "augmentation diversity nói chung tốt" chứ không chỉ ra được đòn bẩy cụ thể.
+
+**Kết quả pilot (30 ảnh, T=50, evaluate FRCNN+FCOS+YOLOX+DINO-Swin-L):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| OSFD_ROT | 0.418 | 0.320 | 0.148 | 0.099 | 0.189 |
+| OSFD_RESIZE | 0.442 | 0.375 | 0.217 | 0.096 | 0.230 |
+| OSFD_NOISE | 0.413 | 0.264 | 0.132 | 0.082 | 0.159 |
+| OSFD_ROT_RESIZE | 0.442 | 0.356 | 0.235 | 0.120 | 0.237 |
+| OSFD_RRB_FULL | 0.438 | 0.374 | 0.212 | 0.142 | 0.243 |
+
+Chạy thêm no-augmentation baseline (`E1_osfd_baseline` config, cùng scale 30/T50, cần thiết vì `OSFD_RRB_FULL` ở scale pilot chỉ đạt avg_bb=0.243 so với E2 gốc=0.335 -- thiếu hụt ~27% thuần túy do T=50 thay vì T=100, nên so trực tiếp với số E1/E2 gốc sẽ tính sai %-gain-explained): NoAug avg_bb=0.093 (white-box=0.392), file `results/B1_noaug_baseline_pilot.json`.
+
+**R% = (Drop_variant − Drop_NoAug) / (Drop_FULL − Drop_NoAug), tính trong-scale (sạch, không lệch do T):**
+
+| Variant | R% aggregate | R% FCOS (A) | R% YOLOX (B) | R% DINO-Swin (C) |
+|---|---|---|---|---|
+| OSFD_ROT | 64.4% | 72.3% | 52.6% | 64.5% |
+| OSFD_NOISE | 44.5% | 43.6% | 40.7% | 50.4% |
+| OSFD_RESIZE | **91.2%** | 100.5% | 103.7% | 62.0% |
+| OSFD_ROT_RESIZE | **96.2%** | 90.8% | **117.0%** | 81.8% |
+| OSFD_RRB_FULL | 100% | 100% | 100% | 100% |
+
+**Kết luận: Strong GO** (RESIZE/ROT_RESIZE vượt hẳn ngưỡng 70-80% aggregate). Nhưng phát hiện chính không phải "1 component thắng đều" mà **augmentation cần thiết tỷ lệ thuận với độ khó kiến trúc của target**:
+- Group A/B (cùng/gần họ CNN với surrogate): RESIZE một mình đã ≥100% gain của FULL; ROT_RESIZE thậm chí **vượt** FULL trên YOLOX (117%) -- thêm noise vào đang hơi hại ở target này.
+- Group C (DINO-Swin, cross-family khó nhất): không component/tổ hợp nào thiếu noise chạm được 100% (ROT_RESIZE chỉ 81.8%) -- đây là target duy nhất cần đủ cả 3 thành phần.
+
+File: `results/B1_rrb_component_ablation.json`.
+
+**Literature check (web scan, Scholar Gateway 0 kết quả cho truy vấn OD-transfer-augmentation 2021-2026 nên dựa chủ yếu vào web scan):** OSFD gốc đã dùng augmentation khai thác spatial consistency/limited equivariance của detector feature; AugTrans (ScienceDirect 2026) đã đi xa hơn với dynamic object-centric rotation, multi-box-aware resizing, composite noise, EOT để cải thiện transferability (AAAI'24 OSFD gốc: https://ojs.aaai.org/index.php/AAAI/article/view/27920; AugTrans: https://www.sciencedirect.com/org/science/article/pii/S1546221826003498). Vì vậy "thêm resize/noise" hay "schedule rotation theo iteration" **không còn novel** -- cả hai baseline literature này đã coi augmentation composition là 1 pipeline/schedule thiết kế trước (kể cả AugTrans's dynamic scheduling: transform/range vẫn do attack pipeline định nghĩa trước, không phải do surrogate tự suy ra). Gap "no direct prior found in this scan" (không claim first-ever): **surrogate-side tự quyết định augmentation composition dựa trên difficulty ước lượng của cross-architecture generalization** -- và bắt buộc phải suy luận thuần từ surrogate-side, vì trong black-box setting không biết kiến trúc target thật để làm kiểu "target=Swin → dùng noise".
+
+## 6. Phase B2 — Augmentation Transfer Signature
+
+Câu hỏi: `Can we predict which augmentation composition produces model-general adversarial directions without accessing the target?` -- tìm signal Q(a) surrogate-side dự đoán được ranking transfer mà B1 đo được (RESIZE>ROT>NOISE tổng thể, nhưng NOISE có vai trò riêng khi kết hợp cho Group C), để sau này dùng `p(a|x) ~ f(Q(a))` thay cho pipeline RRB cố định. Không phải làm lại consensus kiểu G0 (G0 đo K view CÙNG 1 loại augmentation để combine thành 1 update; B2 đo K view của TỪNG loại augmentation khác nhau để characterize riêng từng loại, không combine, không có attack trajectory).
+
+**Thiết kế (diagnostic thuần, không MI-FGSM loop, đo tại delta=0 trên ảnh sạch -- rẻ):** với mỗi ảnh, K=5 draw độc lập mỗi augmentation kind a∈{rot, resize, noise} (1 draw duy nhất cho "none" vì deterministic), mỗi draw là 1 forward+backward (loss OSFD k=3, giống B1) tại delta=0. 3 property surrogate-side:
+- **Gradient alignment:** `mean_k cos(g_{a,k}, g_none)` -- augmented gradient còn trỏ về hướng attack "trần" (không augment) hay đã lệch hẳn.
+- **Feature distortion stability:** pairwise cosine giữa các distortion vector `d_{a,k} = feats_adv_{a,k}(stage cuối) − feats_clean(stage cuối)` qua K draw (tái dùng `gradient_diagnostics.pairwise_cosine_stats`, chỉ đổi input từ gradient sang feature-distortion) -- augmentation a có tạo distortion ổn định/lặp lại hay ngẫu nhiên mỗi lần khác nhau.
+- **Loss sensitivity:** mean/std của `loss_{a,k} − loss_none` qua K draw -- a dịch chuyển loss landscape mạnh/yếu, ổn định/bất định thế nào.
+
+Script: `scripts/run_b2_diagnostic.py`. Lưu ý phạm vi: (1) đo tại delta=0 (đặc trưng nội tại của từng augmentation trên ảnh sạch, không theo trajectory), (2) characterize từng kind RIÊNG LẺ so với "none", không đo tương tác cặp/pairwise giữa các augmentation -- nên phù hợp giải thích ranking đơn lẻ (RESIZE>ROT>NOISE) hơn là hiện tượng "noise chỉ có giá trị marginal khi cộng vào ROT_RESIZE, đặc biệt ở Group C" mà B1 phát hiện; nếu B2 không giải thích được phần combination đó, có thể cần B3 đo joint/pairwise sau. (3) chỉ 3 augmentation kind để rank → Spearman/Pearson có n=3, power rất thấp, đọc theo ranking-match định tính là chính, không theo p-value.
+
+**GO:** signal surrogate-side rank được augmentation gần đúng ranking transfer B1 đo, đặc biệt giải thích được vì sao RESIZE mạnh tổng quát và vì sao NOISE chỉ hữu ích khi composition khó hơn (Group C). **NO-GO:** surrogate-side metric không dự đoán được transfer ordering -- khi đó không theo hướng "adaptive selection", chuyển sang nghiên cứu trực tiếp resize/scale invariance (finding mạnh và ổn định nhất của B1).
+
+**Kết quả (30 ảnh, K=5, đo tại delta=0):**
+
+| Kind | gradient_alignment | feature_stability | loss_sens_mean | loss_sens_std |
+|---|---|---|---|---|
+| ROT | 0.145 | 0.377 | 1.886 | 0.516 |
+| RESIZE | 0.230 | 0.459 | 1.593 | 0.365 |
+| NOISE | 0.173 | 0.743 | 0.337 | 0.003 |
+
+So với ranking transfer B1 đo (RESIZE > ROT > NOISE), không metric nào khớp đủ 3/3 pairwise: `gradient_alignment` và `loss_sensitivity_mean` chỉ đạt 2/3 (đúng 1 đầu bảng, sai thứ tự giữa 2 cái còn lại); `feature_stability`/`loss_sensitivity_std` chỉ 1/3 — **gần như đảo ngược hoàn toàn** (NOISE có feature-distortion ổn định nhất qua các draw nhưng lại transfer yếu nhất trong B1).
+
+**Kết luận: NO-GO cho hướng "adaptive selection qua 1 surrogate-side scalar Q(a)".** Nhưng giá trị chính của B2 không phải "không tìm được metric" mà là bác bỏ thêm một giả thuyết: **stability/consistency ⇏ transferability** — NOISE minh chứng rõ nhất (feature stability cao nhất, transfer đơn lẻ thấp nhất trong B1). Khớp với G0 (gradient-consensus weighting cũng không cải thiện avg BB, thậm chí hơi hại). Hai diagnostic độc lập (G0 trên gradient, B2 trên feature-distortion) cùng chỉ về một hướng: cái tạo transferability không phải là "ổn định/nhất quán qua các draw", ngược lại có thể là diversity/exploration mới quan trọng.
+
+File: `results/B2_augmentation_transfer_signature.json`.
+
+**Literature check bổ sung:** OSFD gốc đã khai thác spatial consistency/limited equivariance qua augmentation, resize là 1 thành phần quan trọng; AugTrans (2026) đi xa hơn với multi-box-aware/content-adaptive resizing và explicitly claim scale-invariant feature dùng chung qua kiến trúc — nên "resize giúp transfer" hay "object-aware resize" tự thân **không đủ novel**. Câu hỏi sâu hơn B1 đặt ra mà chưa thấy prior giải quyết trực tiếp: **vì sao scale transformation giải thích gần hết gain transfer cho CNN target nhưng không đủ cho CNN→Swin?**
+
+## 7. Phase S0 — Scale Transfer Mechanism
+
+Thu hẹp câu hỏi về đúng 1 biến: **scale**. Không invent augmentation mới, không random-resize pipeline -- sweep một **fixed global scale factor** xác định để đo transfer response curve T_g(s) theo từng group kiến trúc, tách bạch khỏi mọi randomization khác (không giống `adaptive_random_resizing` của RRB, vốn scale theo kích thước GT box và random hoá cả biên độ lẫn offset crop mỗi iteration).
+
+**Thiết kế:** surrogate Faster R-CNN R50 + OSFD (k=3) như B1/B2. Augmentation mới `fixed_scale` (`rrb.py:apply_fixed_scale`) -- resize toàn ảnh theo hệ số `s` cố định rồi letterbox-pad (s≤1) hoặc center-crop (s>1) về đúng kích thước gốc, không có rotation/noise đi kèm (cô lập biến scale, cùng triết lý ablation của B1). Sweep `s ∈ {0.6, 0.8, 1.0, 1.2, 1.4}`, pilot 30 ảnh/T=50, evaluate FRCNN (white-box) + FCOS/YOLOX/DINO-Swin-L (đại diện A/B/C, cùng bộ target đã dùng ở B1/B2). Script: `scripts/run_s0_scale_sweep.py`.
+
+**Hypothesis:** cross-family transfer (Group C) hưởng lợi từ perturbation hiệu quả trên **phổ scale rộng** hơn, không chỉ 1 phân phối random-resize hẹp quanh 1.0 như RRB mặc định (rho=0.8, s_max=1.1 -- RRB's range gốc chỉ resize *lớn hơn*, không bao giờ nhỏ hơn 1.0, nên grid `{0.6,0.8,1.0,1.2,1.4}` cố tình phủ rộng hơn cả 2 hướng so với range RRB gốc).
+
+**GO:** scale sweep cho response curve có cấu trúc, khác biệt rõ giữa A/B/C -- đặc biệt Group C đòi hỏi range/diversity scale rộng hơn A/B (vd A/B đã plateau sớm quanh s gần 1, C tiếp tục tăng ở scale cực đoan hơn). **NO-GO:** mọi target cho cùng 1 response curve, hoặc random-resize (RRB gốc) chỉ tốt nhờ generic EOT averaging chứ không phải cơ chế scale cụ thể -- khi đó "scale-space coverage mechanism" không đủ mạnh để xây contribution riêng.
+
+**Rerun v1 (30 ảnh, T=50) bị confound:** `apply_fixed_scale` bản đầu center-crop khi s>1, làm mất nội dung/GT box gần biên -- không tách được hiệu ứng scale khỏi hiệu ứng mất nội dung. Đã fix: redefine bằng **occupancy = min(s, 1/s)**, luôn shrink+pad, không bao giờ crop (chứng minh toán học: "zoom in" content-preserving trong canvas cố định là bất khả thi trừ phi là no-op, nên s>1 giờ tương đương shrink theo 1/s thay vì phóng to+crop). Verify: `pad_fraction = 1-occupancy ≥ 0` ở mọi scale trong grid → 0 GT box bị crop, đảm bảo bằng construction (`results/S0_scale_transfer_sweep_v2.json`).
+
+**Kết quả sau fix (30 ảnh, T=50), sắp theo pad_fraction tăng dần (méo ít→nhiều) để lộ đúng biến thật:**
+
+| Scale (pad_fraction) | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) |
+|---|---|---|---|---|
+| 1.0 (0.000) | 0.392 | 0.180 | 0.066 | 0.029 |
+| 1.2 (0.167) | 0.202 | 0.136 | 0.090 | 0.045 |
+| 0.8 (0.200) | 0.221 | 0.120 | 0.061 | **0.061** |
+| 1.4 (0.286) | 0.121 | 0.105 | 0.092 | 0.042 |
+| 0.6 (0.400) | 0.074 | 0.075 | 0.057 | 0.051 |
+
+**Kết luận: GO.** White-box/FCOS (Group A, gần surrogate): **monotonic** -- méo càng nhiều càng tệ, đỉnh rõ tại pad=0 (ảnh gốc), khớp trực giác đơn giản. YOLOX (B) và DINO-Swin (C): **không monotonic, và không peak tại ảnh gốc** -- DINO tệ nhất chính tại pad=0 (0.029, thấp nhất bảng), tốt nhất tại pad=0.2 (0.061, gấp đôi); YOLOX cũng có 2 giá trị cao nhất ở vùng có padding (1.2, 1.4), không phải ở pad=0. Đây là response curve khác hệ thống thật giữa group, không đơn thuần yếu hơn mà khác **hướng**: CNN/near-family thích ảnh gốc, target xa (B/C) bị hại bởi nó.
+
+**Liên hệ với RRB gốc:** phân tích lại `adaptive_random_resizing` cho thấy nó cũng luôn là phép "enlarge rồi pad rồi resize xuống" -- net effect là content occupancy nằm trong khoảng hẹp `[1/s_max, 1.0] ≈ [0.91, 1.0]` (s_max=1.1 mặc định), chưa bao giờ chạm tới vùng occupancy≈0.8 mà S0 vừa tìm thấy có lợi cho DINO. Đây là gợi ý mechanism cụ thể cho phase tiếp theo: RRB hiện tại quá hẹp/quá gần 1.0 để khai thác vùng này.
+
+File: `results/S0_scale_transfer_sweep_v2.json` (bản đã fix; `results/S0_scale_transfer_sweep.json` giữ lại làm bản có confound, không dùng để kết luận).
+
+**Literature check bổ sung:** *The Scissors Effect* (arXiv 2606.22516, 2026) cho thấy resize-based input diversity có thể giúp hoặc hại transfer tùy regime, liên hệ trực tiếp gradient geometry/alignment -- gần về mechanism với S0 nhưng chưa áp dụng cho OD/cross-architecture. AugTrans (2026) đã dùng content-adaptive resizing với range gồm cả shrink lẫn enlarge. Resize-invariant attack cũng đã có trong classification (PubMed 38402809). Vì vậy "resize giúp transfer" hay "thêm shrink-range" tự thân không đủ novel -- contribution phải nằm ở **OD cross-family directional asymmetry (shrink vs enlarge) và cách khai thác nó**, không phải bản thân phép resize-padding.
+
+## 8. Phase S1 — Bidirectional / Shrink-aware RRB
+
+Attack pilot nhỏ, hypothesis rõ, chưa phải method cuối: S0 chỉ đo transfer response curve qua 1 phép scale CỐ ĐỊNH mỗi lần chạy (không phải augmentation ngẫu nhiên mỗi iteration như RRB thật) -- S1 kiểm tra liệu finding đó có causal khi đưa vào đúng dạng augmentation ngẫu nhiên/mỗi-iteration của 1 attack thật hay không.
+
+**Thiết kế:** giữ nguyên OSFD (k=3) + rotation/noise của RRB gốc, chỉ thay bước resize. Hàm mới `rrb.py:random_occupancy_resize` (sample occupancy ngẫu nhiên trong `[occ_low, occ_high]` mỗi lần gọi, shrink+pad content-preserving như S0, offset pad ngẫu nhiên giống RRB gốc) + `apply_rrb_occupancy` (rotation + `random_occupancy_resize` + noise, thay cho `adaptive_random_resizing`). Wiring qua augmentation kind mới `"rrb_occupancy"` + field `occ_low`/`occ_high` trong `AttackConfig`.
+
+3 variant, pilot 30 ảnh/T=50, evaluate FRCNN+FCOS/YOLOX/DINO-Swin (tái dùng số `OSFD_RRB_FULL` đã có sẵn từ B1 cho `RRB_ORIG`, không chạy lại vì cùng scale/manifest):
+- `RRB_ORIG` = `OSFD_RRB_FULL` (B1, đã có số) -- range gốc, occupancy thực chất chỉ ≈[0.91,1.0]
+- `RRB_SHRINK`: `occ_low=0.7, occ_high=0.9` -- quanh sweet-spot 0.8 mà DINO ưa thích
+- `RRB_BIDIR`: `occ_low=0.7, occ_high=1.0` -- phủ cả vùng gần gốc lẫn shrink vừa phải, tránh cực đoan (S0 cho thấy occupancy=0.6/pad=0.4 tệ, không đưa vào range)
+
+Script: `scripts/run_s1_shrink_rrb_pilot.py`.
+
+**Kỳ vọng nếu S0 causal:** FCOS ≈ không đổi nhiều (ORIG≈BIDIR); YOLOX BIDIR≥ORIG; **DINO-Swin: SHRINK/BIDIR > ORIG rõ rệt** -- gain tăng dần theo khoảng cách kiến trúc với surrogate.
+
+**Strong GO:** DINO tăng rõ, avg BB không giảm, YOLOX cũng tăng. **GO:** DINO tăng ≥10% relative, avg BB không giảm quá ~3%. **NO-GO:** DINO không tăng, hoặc gain DINO phải đánh đổi bằng collapse FCOS/YOLOX khiến avg BB giảm rõ.
+
+**Kết quả (30 ảnh, T=50, `RRB_ORIG` tái dùng số `OSFD_RRB_FULL` từ B1):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| RRB_ORIG | 0.438 | 0.374 | 0.212 | 0.142 | 0.243 |
+| RRB_SHRINK | 0.325 | 0.268 | 0.159 | 0.119 | 0.182 |
+| RRB_BIDIR | 0.370 | 0.325 | 0.181 | 0.135 | 0.214 |
+
+**Kết luận: NO-GO, bất ngờ hơn dự đoán.** Không chỉ FCOS/YOLOX giảm (đã chấp nhận được theo kỳ vọng) mà **DINO-Swin -- target trọng tâm -- cũng giảm ở cả 2 variant** (BIDIR −4.9%, SHRINK −16.2%), ngược hẳn kỳ vọng "SHRINK/BIDIR > ORIG rõ". Avg BB giảm 12-25%, vượt xa ngưỡng chấp nhận ~3%. White-box cũng giảm mạnh (−25.8% với SHRINK) -- attack yếu đi phổ quát, không phải kiểu đánh đổi CNN-lấy-Swin.
+
+**Giả thuyết nguyên nhân:** S0 đo 1 giá trị scale **cố định xuyên suốt** T=50 iteration; S1 (giống RRB thật) **resample occupancy ngẫu nhiên mỗi iteration**. Hai setup khác nhau về structure, không chỉ về giá trị occupancy trung tâm -- "coherence xuyên suốt trajectory" có thể quan trọng hơn bản thân giá trị scale.
+
+File: `results/S1_shrink_rrb_pilot.json`.
+
+## 9. Phase S2 — Trajectory Consistency
+
+Test cuối để reconcile S0 (fixed suốt trajectory) vs S1 (random mỗi iteration) trước khi đóng hẳn nhánh scale -- cô lập đúng 1 biến, resize-only (không rotation/noise, giữ đúng isolation của S0) để tránh nhầm lẫn với confound khác:
+
+- `FIXED_SHRINK`: occupancy ~ Uniform(0.7,0.9) sample **1 lần/ảnh**, giữ nguyên suốt T=50 (augmentation kind mới `fixed_shrink_per_image`, sample trong `run_attack()` trước vòng lặp, verify bằng cách đếm số lần gọi `random.uniform` -- đúng 1 lần/5-iteration test).
+- `RANDOM_SHRINK`: cùng range, resample mỗi iteration (`random_shrink` kind, gọi thẳng `random_occupancy_resize` -- verify đúng 5 lần/5-iteration test).
+- `FIXED_0.8`: tái dùng thẳng số scale=0.8 đã có từ S0 (cùng scale/manifest, không chạy lại).
+- `RRB_ORIG`: tái dùng số `OSFD_RRB_FULL` từ B1.
+
+Script: `scripts/run_s2_trajectory_consistency.py`.
+
+**GO** nếu FIXED_SHRINK thắng rõ RANDOM_SHRINK, đặc biệt trên DINO-Swin, và pattern gần lại với S0 -- research story chuyển từ "scale range" sang "trajectory-consistent augmentation". **NO-GO** nếu fixed cũng không cứu được DINO hoặc avg BB vẫn thấp hơn RRB_ORIG rõ -- đóng hẳn nhánh scale, không tune thêm.
+
+**Kết quả (30 ảnh, T=50):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| RRB_ORIG | 0.438 | 0.374 | 0.212 | 0.142 | 0.243 |
+| FIXED_0.8 | 0.221 | 0.120 | 0.061 | 0.061 | 0.081 |
+| FIXED_SHRINK | 0.185 | 0.109 | 0.068 | 0.034 | 0.070 |
+| RANDOM_SHRINK | 0.350 | 0.271 | 0.180 | 0.105 | 0.185 |
+
+**Kết luận: NO-GO, ngược hoàn toàn hypothesis.** RANDOM_SHRINK thắng FIXED_SHRINK trên **mọi** target, không phải suýt soát: white-box gần gấp đôi (0.350 vs 0.185), DINO-Swin gấp ~3 lần (0.105 vs 0.034) -- đúng ngược lại "coherence xuyên suốt trajectory quan trọng hơn giá trị scale". Resample mỗi iteration tốt hơn hẳn giữ cố định, kể cả trên target trọng tâm nhất. **Đóng nhánh scale-mechanism tại đây theo đúng quyết định đã chốt trước khi chạy.**
+
+File: `results/S2_trajectory_consistency.json`.
+
+**Synthesis xuyên suốt G0→B1→B2→S0→S1→S2:** 3 dòng bằng chứng độc lập cùng chỉ về 1 hướng:
+- G0: ép gradient theo "đồng thuận" (consensus) giữa các RRB view → hại transfer.
+- B2: augmentation có feature-distortion **ổn định nhất** qua các draw (NOISE) lại transfer **yếu nhất** trong B1.
+- S2: giữ 1 view scale **cố định** suốt trajectory → tệ hơn hẳn resample ngẫu nhiên mỗi bước, trên mọi target.
+
+Cả 3 độc lập bác bỏ cùng 1 giả thuyết ngầm ("tìm đúng hướng/giá trị rồi giữ nó ổn định sẽ tốt hơn") theo 3 cách đo hoàn toàn khác nhau (gradient-space, feature-space, augmentation-schedule). Kết luận chung: **cái tạo transferability của RRB không phải là một "điểm vận hành đúng" nào đó, mà là chính sự đa dạng/ngẫu nhiên giữa các iteration** (đúng tinh thần EOT nguyên bản của RRB). Mọi nỗ lực "cải thiện" RRB bằng cách làm nó nhất quán/ổn định/có chủ đích hơn (G0's consensus-weighting, S2's fixed-scale) đều làm attack yếu đi. 6 phase mechanism investigation (G0/B1/B2/S0/S1/S2) đều không tìm ra cấu hình nào vượt được `E2` (OSFD+RRB gốc) -- RRB mặc định vẫn là baseline mạnh nhất toàn dự án.

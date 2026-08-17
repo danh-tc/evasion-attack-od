@@ -1,0 +1,229 @@
+{
+  "n_images": 30,
+  "manifest": "dev_300",
+  "n_iters": 50,
+  "scales": [
+    0.6,
+    0.8,
+    1.0,
+    1.2,
+    1.4
+  ],
+  "targets": [
+    "fcos_r50",
+    "yolox_l",
+    "dino_swin_l"
+  ],
+  "results": {
+    "0.6": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 163,
+        "asr": 0.06857142857142857,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.38106049011896925,
+        "map_drop": 0.07213603843635685
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 114,
+        "asr": 0.13636363636363635,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.3709294419085972,
+        "map_drop": 0.07666650997651486
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 164,
+        "asr": 0.06818181818181818,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.5015756145350941,
+        "map_drop": 0.057607070185727305
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 184,
+        "asr": 0.07537688442211055,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5877664766748459,
+        "map_drop": 0.06507696403145002
+      }
+    },
+    "0.8": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 131,
+        "asr": 0.25142857142857145,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.23551048487352041,
+        "map_drop": 0.2176860436818057
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 107,
+        "asr": 0.1893939393939394,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.32384188014139825,
+        "map_drop": 0.12375407174371383
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 167,
+        "asr": 0.05113636363636364,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.4945128334167999,
+        "map_drop": 0.06466985130402153
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 186,
+        "asr": 0.06532663316582915,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5926370616646918,
+        "map_drop": 0.0602063790416042
+      }
+    },
+    "1.0": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 47,
+        "asr": 0.7314285714285714,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.06629398749867112,
+        "map_drop": 0.386902541056655
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 82,
+        "asr": 0.3787878787878788,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.26332819828638826,
+        "map_drop": 0.18426775359872383
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 158,
+        "asr": 0.10227272727272728,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.4837006313998142,
+        "map_drop": 0.07548205332100727
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 184,
+        "asr": 0.07537688442211055,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.621554051311352,
+        "map_drop": 0.03128938939494397
+      }
+    },
+    "1.2": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 157,
+        "asr": 0.10285714285714286,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.3246192864222658,
+        "map_drop": 0.12857724213306032
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 123,
+        "asr": 0.06818181818181818,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.36734953166374157,
+        "map_drop": 0.08024642022137052
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 170,
+        "asr": 0.03409090909090909,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.5166719598120356,
+        "map_drop": 0.042510724908785824
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 191,
+        "asr": 0.04020100502512563,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.6230850816191391,
+        "map_drop": 0.02975835908715685
+      }
+    },
+    "1.4": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 169,
+        "asr": 0.03428571428571429,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.40153007081184583,
+        "map_drop": 0.051666457743480276
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 129,
+        "asr": 0.022727272727272728,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.38664387271837664,
+        "map_drop": 0.06095207916673545
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 170,
+        "asr": 0.03409090909090909,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.5393777050188435,
+        "map_drop": 0.01980497970197792
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 197,
+        "asr": 0.010050251256281407,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.6469055721388427,
+        "map_drop": 0.005937868567453264
+      }
+    }
+  }
+}

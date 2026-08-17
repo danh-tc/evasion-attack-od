@@ -1,0 +1,229 @@
+{
+  "n_images": 30,
+  "manifest": "dev_300",
+  "n_iters": 50,
+  "variants": [
+    "OSFD_ROT",
+    "OSFD_RESIZE",
+    "OSFD_NOISE",
+    "OSFD_ROT_RESIZE",
+    "OSFD_RRB_FULL"
+  ],
+  "targets": [
+    "fcos_r50",
+    "yolox_l",
+    "dino_swin_l"
+  ],
+  "results": {
+    "OSFD_ROT": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 25,
+        "asr": 0.8571428571428571,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.03556108654087314,
+        "map_drop": 0.41763544201445296
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 47,
+        "asr": 0.6439393939393939,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.12757313071883639,
+        "map_drop": 0.3200228211662757
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 127,
+        "asr": 0.2784090909090909,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.41088720090092057,
+        "map_drop": 0.14829548381990088
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 169,
+        "asr": 0.1507537688442211,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5536197642368876,
+        "map_drop": 0.09922367646940833
+      }
+    },
+    "OSFD_RESIZE": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 10,
+        "asr": 0.9428571428571428,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.011444036060737723,
+        "map_drop": 0.44175249249458837
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 30,
+        "asr": 0.7727272727272727,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.07253425611988505,
+        "map_drop": 0.375061695765227
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 111,
+        "asr": 0.3693181818181818,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.34218819980985216,
+        "map_drop": 0.2169944849109693
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 168,
+        "asr": 0.15577889447236182,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5563731851400412,
+        "map_drop": 0.09647025556625477
+      }
+    },
+    "OSFD_NOISE": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 20,
+        "asr": 0.8857142857142857,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.04003789632015543,
+        "map_drop": 0.4131586322351707
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 62,
+        "asr": 0.5303030303030303,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.1831214397334472,
+        "map_drop": 0.2644745121516649
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 138,
+        "asr": 0.2159090909090909,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.42731692244226804,
+        "map_drop": 0.1318657622785534
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 171,
+        "asr": 0.1407035175879397,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5711240771298925,
+        "map_drop": 0.08171936357640341
+      }
+    },
+    "OSFD_ROT_RESIZE": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 19,
+        "asr": 0.8914285714285715,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.011210768222784188,
+        "map_drop": 0.44198576033254194
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 36,
+        "asr": 0.7272727272727273,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.09125948334089341,
+        "map_drop": 0.3563364685442187
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 111,
+        "asr": 0.3693181818181818,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.3243686449702845,
+        "map_drop": 0.23481403975053694
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 157,
+        "asr": 0.21105527638190955,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.5330470511641192,
+        "map_drop": 0.11979638954217675
+      }
+    },
+    "OSFD_RRB_FULL": {
+      "faster_rcnn_r50_fpn": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 175,
+        "adv_matched": 21,
+        "asr": 0.88,
+        "map_clean": 0.4531965285553261,
+        "map_adv": 0.015672150642819856,
+        "map_drop": 0.43752437791250626
+      },
+      "fcos_r50": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 132,
+        "adv_matched": 23,
+        "asr": 0.8257575757575758,
+        "map_clean": 0.4475959518851121,
+        "map_adv": 0.07361300862970585,
+        "map_drop": 0.37398294325540626
+      },
+      "yolox_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 176,
+        "adv_matched": 109,
+        "asr": 0.3806818181818182,
+        "map_clean": 0.5591826847208214,
+        "map_adv": 0.34684404665687507,
+        "map_drop": 0.21233863806394637
+      },
+      "dino_swin_l": {
+        "n_images": 30,
+        "n_gt": 235,
+        "clean_matched": 199,
+        "adv_matched": 154,
+        "asr": 0.22613065326633167,
+        "map_clean": 0.652843440706296,
+        "map_adv": 0.511258468173314,
+        "map_drop": 0.14158497253298197
+      }
+    }
+  }
+}
