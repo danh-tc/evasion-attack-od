@@ -159,6 +159,11 @@ class AttackConfig:
     # (Phase 1b, results/P1b_prototype_diagnostic.json), see losses.py.
     loss_type: str = "osfd"
     k: float = 3.0
+    # "osfd" only (Phase F0 "Backbone Stage Ablation", plan.md): per-stage
+    # weight multiplier passed to losses.py:backbone_feature_loss, e.g.
+    # (1,0,0,0) attacks only backbone stage 0. None (default, every pre-F0
+    # experiment) weights every stage equally -- unchanged behavior.
+    osfd_stage_weights: tuple[float, ...] | None = None
 
     # "rel"/"osfd_rel_hybrid" only: per-surrogate-backbone-stage weights (must
     # match the surrogate's stage count -- 4 for faster_rcnn_r50_fpn). e.g.
@@ -217,15 +222,34 @@ class AttackConfig:
     # "rrb_spectral" (Option A: spectral on top of unmodified RRB, E9) /
     # "rrb_rot"/"rrb_resize"/"rrb_noise"/"rrb_rot_resize" (Phase B1 component
     # ablation) / "fixed_scale" (Phase S0 scale sweep, uses `fixed_scale`
-    # below instead of RRB's randomized resize).
+    # below instead of RRB's randomized resize) / "rrb_occupancy" (Phase S1) /
+    # "random_shrink"/"fixed_shrink_per_image" (Phase S2) /
+    # "rrb_iid"/"rrb_anti_repeat"/"rrb_over_diverse" (Phase S3 candidate,
+    # history_tau/history_window/history_max_tries/history_k_candidates
+    # below).
     augmentation: str = "none"
     # "fixed_scale" only: deterministic global scale factor (Phase S0).
     fixed_scale: float = 1.0
     # "rrb_occupancy" only: random content-occupancy range for
     # `random_occupancy_resize`, replacing RRB's `adaptive_random_resizing`
-    # (Phase S1 "Bidirectional/Shrink-aware RRB").
+    # (Phase S1 "Bidirectional/Shrink-aware RRB"). Also doubles as the
+    # sampling range for "rrb_iid"/"rrb_anti_repeat"/"rrb_over_diverse"
+    # (Phase S3), set to [0.91, 1.0] there to match RRB_ORIG's own effective
+    # range instead of S1's wider [0.7, 1.0].
     occ_low: float = 0.7
     occ_high: float = 1.0
+
+    # "rrb_anti_repeat"/"rrb_over_diverse" only (Phase S3 "History-Aware
+    # RRB" candidate, plan.md): history_tau/history_window size the
+    # near-duplicate check (see rrb.py:sample_anti_repeat_params);
+    # history_tau's default is scripts/sanity_check_history_aware_rrb.py's
+    # tau=p10-of-null point (~26% implied reject rate under plain i.i.d.
+    # sampling -- large enough to matter). history_k_candidates is
+    # "rrb_over_diverse" only.
+    history_tau: float = 0.44
+    history_window: int = 3
+    history_max_tries: int = 20
+    history_k_candidates: int = 10
 
     seed: int = 42
 
@@ -493,5 +517,84 @@ def make_experiments(drop_prob: float, num_masks: int) -> dict[str, ExperimentSp
         # already-computed results/S0_scale_transfer_sweep_v2.json instead.
         "FIXED_0.8": ExperimentSpec(
             "FIXED_0.8", AttackConfig(k=3.0, mask_enabled=False, augmentation="fixed_scale", fixed_scale=0.8)
+        ),
+        # Phase S3 (plan.md "History-Aware RRB" candidate): does conditioning
+        # each RRB draw on its last history_window=3 draws -- rejecting
+        # near-duplicates (ANTI_REPEAT) or actively maximizing distance from
+        # them (OVER_DIVERSE, positive control) -- beat plain i.i.d. sampling
+        # (IID)? All three use the same safe range (theta<=7deg, occupancy in
+        # [0.91,1.0], matching RRB_ORIG's own effective resize range, not
+        # S1's wider/aggressive [0.7,1.0] that underperformed on every
+        # target). Run via scripts/run_s3_history_aware_rrb.py.
+        "RRB_IID": ExperimentSpec(
+            "RRB_IID",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="rrb_iid", occ_low=0.91, occ_high=1.0),
+        ),
+        "RRB_ANTI_REPEAT": ExperimentSpec(
+            "RRB_ANTI_REPEAT",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb_anti_repeat", occ_low=0.91, occ_high=1.0
+            ),
+        ),
+        "RRB_OVER_DIVERSE": ExperimentSpec(
+            "RRB_OVER_DIVERSE",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb_over_diverse", occ_low=0.91, occ_high=1.0
+            ),
+        ),
+        # Phase F0 (plan.md "Backbone Stage Ablation"): OSFD sums its loss
+        # over all 4 faster_rcnn_r50_fpn backbone stages unconditionally.
+        # This isolates each stage (and adjacent pairs) via
+        # `osfd_stage_weights`, no augmentation (RRB's per-iteration
+        # randomness would confound which stage's *gradient direction* --
+        # not just magnitude -- actually transfers). OSFD_ALL is the same
+        # config as E1 (osfd_stage_weights=None -- every stage weighted 1),
+        # re-run at this phase's own pilot scale for a fair same-scale
+        # reference rather than reusing E1's 50-image/T=100 numbers, same
+        # reasoning as B1's OSFD_RRB_FULL. Run via
+        # scripts/run_f0_stage_ablation.py.
+        "OSFD_S0": ExperimentSpec(
+            "OSFD_S0",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(1, 0, 0, 0)),
+        ),
+        "OSFD_S1": ExperimentSpec(
+            "OSFD_S1",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(0, 1, 0, 0)),
+        ),
+        "OSFD_S2": ExperimentSpec(
+            "OSFD_S2",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(0, 0, 1, 0)),
+        ),
+        "OSFD_S3": ExperimentSpec(
+            "OSFD_S3",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(0, 0, 0, 1)),
+        ),
+        "OSFD_S01": ExperimentSpec(
+            "OSFD_S01",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(1, 1, 0, 0)),
+        ),
+        "OSFD_S12": ExperimentSpec(
+            "OSFD_S12",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(0, 1, 1, 0)),
+        ),
+        "OSFD_S23": ExperimentSpec(
+            "OSFD_S23",
+            AttackConfig(k=3.0, mask_enabled=False, augmentation="none", osfd_stage_weights=(0, 0, 1, 1)),
+        ),
+        "OSFD_ALL": ExperimentSpec(
+            "OSFD_ALL", AttackConfig(k=3.0, mask_enabled=False, augmentation="none")
+        ),
+        # Phase F1 (plan.md "Best Stage + RRB vs Full-Stage + RRB"): F0
+        # confirmed OSFD_S2 (stage-2-only) beats OSFD_ALL at both N=30 and
+        # N=100 with no augmentation. Decisive question: does that advantage
+        # stack on top of RRB (the project's strongest single lever), or get
+        # swamped by it (like RaPA-mask did in I4 vs E2)? "E2_osfd_rrb"
+        # already exists (= OSFD_ALL + RRB); this adds the stage-2-only
+        # counterpart.
+        "S2_RRB": ExperimentSpec(
+            "S2_RRB",
+            AttackConfig(
+                k=3.0, mask_enabled=False, augmentation="rrb", osfd_stage_weights=(0, 0, 1, 0)
+            ),
         ),
     }

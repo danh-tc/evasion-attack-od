@@ -24,15 +24,30 @@ from evasion_od.regions import (
 
 
 def backbone_feature_loss(
-    feats_adv: tuple[torch.Tensor, ...], feats_clean: tuple[torch.Tensor, ...], k: float
+    feats_adv: tuple[torch.Tensor, ...],
+    feats_clean: tuple[torch.Tensor, ...],
+    k: float,
+    stage_weights: tuple[float, ...] | None = None,
 ) -> torch.Tensor:
+    """`stage_weights` (Phase F0 "Backbone Stage Ablation", plan.md): per-stage
+    multiplier on that stage's term, e.g. (1,0,0,0) attacks only the
+    shallowest backbone stage. None (default, every pre-F0 experiment)
+    weights every stage 1 -- identical to the original unconditional sum.
+    """
     if len(feats_adv) != len(feats_clean):
         raise ValueError(
             f"stage count mismatch: adv={len(feats_adv)} clean={len(feats_clean)}"
         )
+    if stage_weights is not None and len(stage_weights) != len(feats_adv):
+        raise ValueError(
+            f"stage_weights length {len(stage_weights)} != stage count {len(feats_adv)}"
+        )
     loss = feats_adv[0].new_zeros(())
-    for f_adv, f_clean in zip(feats_adv, feats_clean):
-        loss = loss + torch.mean((f_adv - k * f_clean) ** 2)
+    for i, (f_adv, f_clean) in enumerate(zip(feats_adv, feats_clean)):
+        w = 1.0 if stage_weights is None else stage_weights[i]
+        if w == 0:
+            continue
+        loss = loss + w * torch.mean((f_adv - k * f_clean) ** 2)
     return loss
 
 

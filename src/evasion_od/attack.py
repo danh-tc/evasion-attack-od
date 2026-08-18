@@ -41,14 +41,20 @@ from evasion_od.preprocessing import (
 )
 from evasion_od.regions import precompute_relational_targets, precompute_spatial_targets
 from evasion_od.rrb import (
+    SAFE_THETA_RANGE,
+    RRBParams,
     additive_gaussian_noise,
     apply_fixed_scale,
     apply_resize_only,
     apply_rotation_resize,
     apply_rrb,
     apply_rrb_occupancy,
+    apply_rrb_with_params,
     random_axis_rotation,
     random_occupancy_resize,
+    sample_anti_repeat_params,
+    sample_over_diverse_params,
+    sample_rrb_params,
 )
 from evasion_od.srs import apply_rrb_spectral, apply_srs
 from evasion_od.ssa import apply_ssa
@@ -107,6 +113,13 @@ def _apply_augmentation(
     raise ValueError(f"unknown augmentation: {kind!r}")
 
 
+# Phase S3 (plan.md "History-Aware RRB" candidate): these three kinds need
+# per-image mutable state (the trajectory-so-far's transform history) that
+# `_apply_augmentation`'s stateless signature doesn't carry, so run_attack()
+# handles them in a separate branch instead of routing through it.
+_HISTORY_AWARE_KINDS = ("rrb_iid", "rrb_anti_repeat", "rrb_over_diverse")
+
+
 def run_attack(
     model,
     img_bgr_uint8: np.ndarray,
@@ -161,6 +174,10 @@ def run_attack(
     if cfg.augmentation == "fixed_shrink_per_image":
         effective_fixed_scale = random.uniform(cfg.occ_low, cfg.occ_high)
 
+    # Phase S3: transform history for rrb_iid/rrb_anti_repeat/rrb_over_diverse,
+    # reset per image, appended to as each iteration's (view's) draw is made.
+    transform_history: list[RRBParams] = []
+
     try:
         delta = torch.zeros_like(clean_chw)
         momentum = torch.zeros_like(clean_chw)
@@ -176,13 +193,37 @@ def run_attack(
                     random.seed(view_seed)
                     torch.manual_seed(view_seed)
                 adv = torch.clamp(clean_chw + delta, 0.0, 255.0)
-                adv = _apply_augmentation(
-                    cfg.augmentation, adv, gt_resized, effective_fixed_scale, cfg.occ_low, cfg.occ_high
-                )
+                if cfg.augmentation in _HISTORY_AWARE_KINDS:
+                    occ_range = (cfg.occ_low, cfg.occ_high)
+                    if cfg.augmentation == "rrb_iid":
+                        params = sample_rrb_params(SAFE_THETA_RANGE, occ_range)
+                    elif cfg.augmentation == "rrb_anti_repeat":
+                        params = sample_anti_repeat_params(
+                            transform_history,
+                            SAFE_THETA_RANGE,
+                            occ_range,
+                            tau=cfg.history_tau,
+                            h=cfg.history_window,
+                            max_tries=cfg.history_max_tries,
+                        )
+                    else:
+                        params = sample_over_diverse_params(
+                            transform_history,
+                            SAFE_THETA_RANGE,
+                            occ_range,
+                            h=cfg.history_window,
+                            k_candidates=cfg.history_k_candidates,
+                        )
+                    transform_history.append(params)
+                    adv = apply_rrb_with_params(adv, gt_resized, params)
+                else:
+                    adv = _apply_augmentation(
+                        cfg.augmentation, adv, gt_resized, effective_fixed_scale, cfg.occ_low, cfg.occ_high
+                    )
                 batch = preprocess_batch(model, adv, resized.data_sample)
                 feats_adv = backbone_features(model, batch["inputs"])
                 if cfg.loss_type == "osfd":
-                    loss = backbone_feature_loss(feats_adv, feats_clean, cfg.k)
+                    loss = backbone_feature_loss(feats_adv, feats_clean, cfg.k, cfg.osfd_stage_weights)
                 elif cfg.loss_type == "rel":
                     # Loop below does gradient ASCENT; relational_contrast_loss
                     # is meant to be MINIMIZED (push C_adv opposite C_clean),

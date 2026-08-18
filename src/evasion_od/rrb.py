@@ -9,7 +9,9 @@ Only used by E2 (OSFD + RRB); E1/E3/E4/E5 run with `use_rrb=False`.
 
 from __future__ import annotations
 
+import math
 import random
+from typing import NamedTuple
 
 import torch
 import torch.nn.functional as F
@@ -17,7 +19,11 @@ from torchvision.transforms.functional import rotate
 
 
 def random_axis_rotation(
-    img_chw: torch.Tensor, gt_boxes_xyxy: torch.Tensor, theta: float = 7.0, l_s: int = 10
+    img_chw: torch.Tensor,
+    gt_boxes_xyxy: torch.Tensor,
+    theta: float = 7.0,
+    l_s: int = 10,
+    angle: float | None = None,
 ) -> torch.Tensor:
     device = img_chw.device
     _, h, w = img_chw.shape
@@ -28,7 +34,8 @@ def random_axis_rotation(
     if l_s > 0:
         centers = centers + torch.randint_like(centers, low=-l_s, high=l_s)
     cx, cy = centers[random.randrange(len(centers))]
-    angle = random.random() * 2 * theta - theta
+    if angle is None:
+        angle = random.random() * 2 * theta - theta
     return rotate(img_chw.unsqueeze(0), angle, center=[int(cx), int(cy)]).squeeze(0)
 
 
@@ -98,7 +105,14 @@ def apply_fixed_scale(img_chw: torch.Tensor, scale: float) -> torch.Tensor:
     return out.squeeze(0)
 
 
-def random_occupancy_resize(img_chw: torch.Tensor, occ_low: float, occ_high: float) -> torch.Tensor:
+def random_occupancy_resize(
+    img_chw: torch.Tensor,
+    occ_low: float,
+    occ_high: float,
+    occ: float | None = None,
+    pad_top_frac: float | None = None,
+    pad_left_frac: float | None = None,
+) -> torch.Tensor:
     """Phase S1 (plan.md "Bidirectional/Shrink-aware RRB"): samples a random
     content occupancy in [occ_low, occ_high] each call, shrinks to that
     fraction of the canvas, and pads at a random offset (same
@@ -113,16 +127,28 @@ def random_occupancy_resize(img_chw: torch.Tensor, occ_low: float, occ_high: flo
     over occupancy range [1/s_max, 1.0] ~ [0.91, 1.0] at s_max=1.1 -- too
     narrow/close to 1.0 to reach the occupancy~0.8 region Phase S0 found
     DINO-Swin-L specifically benefits from.
+
+    `occ`/`pad_top_frac`/`pad_left_frac` override the corresponding random
+    draw when given (Phase S3 "History-Aware RRB": replays a specific
+    `RRBParams` instead of drawing fresh, so a chosen candidate is applied
+    exactly as scored).
     """
-    occ = random.uniform(occ_low, occ_high)
+    if occ is None:
+        occ = random.uniform(occ_low, occ_high)
     _, h, w = img_chw.shape
     new_h, new_w = max(1, round(h * occ)), max(1, round(w * occ))
     resized = F.interpolate(
         img_chw.unsqueeze(0), size=(new_h, new_w), mode="bilinear", align_corners=True
     )
     pad_h, pad_w = h - new_h, w - new_w
-    top = random.randint(0, pad_h) if pad_h > 0 else 0
-    left = random.randint(0, pad_w) if pad_w > 0 else 0
+    if pad_top_frac is None:
+        top = random.randint(0, pad_h) if pad_h > 0 else 0
+    else:
+        top = round(pad_top_frac * pad_h)
+    if pad_left_frac is None:
+        left = random.randint(0, pad_w) if pad_w > 0 else 0
+    else:
+        left = round(pad_left_frac * pad_w)
     out = F.pad(resized, (left, pad_w - left, top, pad_h - top), mode="constant", value=0.0)
     return out.squeeze(0)
 
@@ -203,3 +229,135 @@ def apply_rrb(
     out = adaptive_random_resizing(out, gt_boxes_xyxy, rho=rho, s_max=s_max)
     out = additive_gaussian_noise(out, sigma=sigma)
     return out
+
+
+# Phase S3 (plan.md "History-Aware RRB" candidate): G0->B1->B2->S0->S1->S2 all
+# point the same way -- RRB's transferability comes from per-iteration
+# resampling, not from converging on/holding a single "right" operating
+# point. This asks a narrower question: within RRB_ORIG's own safe range
+# (theta<=7deg, occupancy in [0.91,1.0] -- not S1's wider/aggressive
+# [0.7,1.0] that underperformed), does conditioning each draw on its last
+# `h` draws -- rejecting near-duplicates, or actively maximizing distance
+# from them -- beat plain i.i.d. resampling? scripts/sanity_check_history_
+# aware_rrb.py estimates the answer's plausibility from sampling geometry
+# alone before spending GPU budget: at `history_tau`'s default (0.44),
+# ~26% of plain i.i.d. draws already land within tau of their own last 3 --
+# large enough that anti-repeat's rejection isn't a near-certain no-op.
+
+SAFE_THETA_RANGE = (-7.0, 7.0)  # matches apply_rrb's default theta=7.0
+
+
+class RRBParams(NamedTuple):
+    """One RRB draw's parameters, low-dimensional enough to compare across
+    iterations for history-aware sampling. Deliberately excludes noise:
+    `additive_gaussian_noise`'s sigma is a fixed scalar (not resampled per
+    call), and its realization is a full per-pixel field, not a parameter
+    comparable to theta/occ/pad.
+    """
+
+    theta: float
+    occ: float
+    pad_top_frac: float
+    pad_left_frac: float
+
+
+def sample_rrb_params(
+    theta_range: tuple[float, float] = SAFE_THETA_RANGE,
+    occ_range: tuple[float, float] = (0.91, 1.0),
+) -> RRBParams:
+    return RRBParams(
+        theta=random.uniform(*theta_range),
+        occ=random.uniform(*occ_range),
+        pad_top_frac=random.uniform(0.0, 1.0),
+        pad_left_frac=random.uniform(0.0, 1.0),
+    )
+
+
+def _normalize_params(
+    p: RRBParams, theta_range: tuple[float, float], occ_range: tuple[float, float]
+) -> tuple[float, float, float, float]:
+    theta_n = (p.theta - theta_range[0]) / (theta_range[1] - theta_range[0])
+    occ_n = (p.occ - occ_range[0]) / (occ_range[1] - occ_range[0])
+    return (theta_n, occ_n, p.pad_top_frac, p.pad_left_frac)
+
+
+def params_distance(
+    a: RRBParams, b: RRBParams, theta_range: tuple[float, float], occ_range: tuple[float, float]
+) -> float:
+    """Euclidean distance in the [0,1]^4 normalized parameter space -- same
+    metric scripts/sanity_check_history_aware_rrb.py used to size `tau`.
+    """
+    va = _normalize_params(a, theta_range, occ_range)
+    vb = _normalize_params(b, theta_range, occ_range)
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(va, vb)))
+
+
+def sample_anti_repeat_params(
+    history: list[RRBParams],
+    theta_range: tuple[float, float] = SAFE_THETA_RANGE,
+    occ_range: tuple[float, float] = (0.91, 1.0),
+    tau: float = 0.44,
+    h: int = 3,
+    max_tries: int = 20,
+) -> RRBParams:
+    """Resamples until a draw's min-distance to the last `h` history entries
+    clears `tau`, or falls back to the least-similar of `max_tries` attempts
+    if none clears it (keeps the loop bounded -- with tau sized so rejection
+    is common but not near-certain, this fallback is rarely hit).
+    """
+    recent = history[-h:]
+    if not recent:
+        return sample_rrb_params(theta_range, occ_range)
+    best, best_dist = None, -1.0
+    for _ in range(max_tries):
+        cand = sample_rrb_params(theta_range, occ_range)
+        dist = min(params_distance(cand, p, theta_range, occ_range) for p in recent)
+        if dist >= tau:
+            return cand
+        if dist > best_dist:
+            best, best_dist = cand, dist
+    return best
+
+
+def sample_over_diverse_params(
+    history: list[RRBParams],
+    theta_range: tuple[float, float] = SAFE_THETA_RANGE,
+    occ_range: tuple[float, float] = (0.91, 1.0),
+    h: int = 3,
+    k_candidates: int = 10,
+) -> RRBParams:
+    """Positive control for `sample_anti_repeat_params`: draws
+    `k_candidates` i.i.d. candidates and keeps whichever is farthest (by the
+    same metric) from the last `h` history entries -- a much larger and more
+    deterministic push away from recent draws than tau-based rejection.
+    """
+    recent = history[-h:]
+    candidates = [sample_rrb_params(theta_range, occ_range) for _ in range(k_candidates)]
+    if not recent:
+        return candidates[0]
+    return max(
+        candidates,
+        key=lambda c: min(params_distance(c, p, theta_range, occ_range) for p in recent),
+    )
+
+
+def apply_rrb_with_params(
+    img_chw: torch.Tensor,
+    gt_boxes_xyxy: torch.Tensor,
+    params: RRBParams,
+    theta_max: float = 7.0,
+    l_s: int = 10,
+    sigma: float = 6.0,
+) -> torch.Tensor:
+    """Applies a specific, already-chosen `RRBParams` draw (rotation + resize
+    + noise, same structure as `apply_rrb`) instead of sampling fresh --
+    lets the history-aware policies above choose a candidate, then apply it
+    exactly as scored.
+    """
+    if gt_boxes_xyxy.numel() == 0:
+        return additive_gaussian_noise(img_chw, sigma)
+    out = random_axis_rotation(img_chw, gt_boxes_xyxy, theta=theta_max, l_s=l_s, angle=params.theta)
+    out = random_occupancy_resize(
+        out, 0.0, 1.0, occ=params.occ, pad_top_frac=params.pad_top_frac, pad_left_frac=params.pad_left_frac
+    )
+    return additive_gaussian_noise(out, sigma=sigma)

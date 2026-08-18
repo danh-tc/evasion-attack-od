@@ -447,3 +447,156 @@ File: `results/S2_trajectory_consistency.json`.
 - S2: giữ 1 view scale **cố định** suốt trajectory → tệ hơn hẳn resample ngẫu nhiên mỗi bước, trên mọi target.
 
 Cả 3 độc lập bác bỏ cùng 1 giả thuyết ngầm ("tìm đúng hướng/giá trị rồi giữ nó ổn định sẽ tốt hơn") theo 3 cách đo hoàn toàn khác nhau (gradient-space, feature-space, augmentation-schedule). Kết luận chung: **cái tạo transferability của RRB không phải là một "điểm vận hành đúng" nào đó, mà là chính sự đa dạng/ngẫu nhiên giữa các iteration** (đúng tinh thần EOT nguyên bản của RRB). Mọi nỗ lực "cải thiện" RRB bằng cách làm nó nhất quán/ổn định/có chủ đích hơn (G0's consensus-weighting, S2's fixed-scale) đều làm attack yếu đi. 6 phase mechanism investigation (G0/B1/B2/S0/S1/S2) đều không tìm ra cấu hình nào vượt được `E2` (OSFD+RRB gốc) -- RRB mặc định vẫn là baseline mạnh nhất toàn dự án.
+
+## 10. Phase S3 — History-Aware RRB (candidate)
+
+Câu hỏi hẹp hơn S0-S2: trong đúng safe range của RRB_ORIG (theta≤7°, occupancy∈[0.91,1.0] -- không phải range rộng [0.7,1.0] của S1 đã biết là tệ hơn trên mọi target), liệu **điều kiện hoá mỗi draw theo lịch sử h=3 draw gần nhất** -- tránh lặp lại transform quá giống (`RRB_ANTI_REPEAT`) hoặc chủ động tối đa hoá khoảng cách (`RRB_OVER_DIVERSE`, positive control) -- có tốt hơn i.i.d. resampling thuần (`RRB_IID`) hay không. Trước khi chạy GPU, `scripts/sanity_check_history_aware_rrb.py` (thuần thống kê, không cần model/ảnh) ước lượng effect size khả dĩ: với h=3 và tau=percentile-10 của phân phối null (~0.44 trong không gian chuẩn hoá 4 chiều [theta, occ, pad_top_frac, pad_left_frac]), ~26% draw i.i.d. đã "quá gần" 3 draw liền trước -- đủ lớn để `RRB_ANTI_REPEAT` thực sự khác `RRB_IID` về hành vi, không phải no-op gần như chắc chắn.
+
+Mã nguồn: `src/evasion_od/rrb.py` (`RRBParams`, `sample_rrb_params`/`sample_anti_repeat_params`/`sample_over_diverse_params`, `params_distance`, `apply_rrb_with_params`), wiring per-image transform history trong `attack.py:run_attack` (reset mỗi ảnh), field `history_tau`/`history_window`/`history_max_tries`/`history_k_candidates` trong `AttackConfig`, 3 experiment `RRB_IID`/`RRB_ANTI_REPEAT`/`RRB_OVER_DIVERSE` trong `config.py`. Script: `scripts/run_s3_history_aware_rrb.py`.
+
+**Kết quả pilot (30 ảnh, T=50, `RRB_ORIG` tái dùng số `OSFD_RRB_FULL` từ B1, cùng scale):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| RRB_ORIG | 0.438 | 0.374 | 0.212 | 0.142 | 0.243 |
+| RRB_IID | 0.409 | 0.351 | 0.206 | 0.148 | 0.235 |
+| RRB_ANTI_REPEAT | 0.432 | 0.340 | 0.215 | 0.162 | 0.239 |
+| RRB_OVER_DIVERSE | 0.414 | 0.334 | 0.198 | 0.154 | 0.229 |
+
+**Kết luận: Borderline GO / Needs confirmation.** `RRB_ANTI_REPEAT` > `RRB_IID` ở YOLOX (+4%) và đặc biệt DINO-Swin (0.148→0.162, +9%; so với `RRB_ORIG`: 0.142→0.162, +14%), nhưng thua ở FCOS (-3%) và avg BB chỉ nhỉnh hơn IID +1.7% -- chưa tách khỏi biên nhiễu ở N=30. `RRB_OVER_DIVERSE` (positive control) không nhất quán thắng `RRB_ANTI_REPEAT` (chỉ hơn ở white-box/YOLOX, thua FCOS/DINO) -- không xác nhận "càng diverse càng tốt"; đã hoàn thành vai trò control, không cần chạy lại ở scale confirm.
+
+Pattern đáng chú ý (chưa đủ mạnh để claim chắc): **kiến trúc target càng xa surrogate thì `RRB_ANTI_REPEAT` càng có ích** (FCOS giảm, YOLOX/DINO tăng, DINO tăng nhiều nhất). Nếu là tín hiệu thật, câu chuyện phù hợp hơn "optimal temporal diversity nói chung" là:
+
+> Reducing inter-iteration augmentation redundancy may preferentially benefit harder cross-architecture targets.
+
+**Kế hoạch confirm:** 100 ảnh, T=50, chỉ 3 arm `RRB_ORIG` (chạy lại tươi ở N=100, không tái dùng số N=30 từ B1 vì lệch scale) / `RRB_IID` / `RRB_ANTI_REPEAT` -- bỏ `RRB_OVER_DIVERSE`. **GO** nếu `RRB_ANTI_REPEAT` > `RRB_IID` trên DINO-Swin và avg BB không giảm rõ. **Strong GO** nếu `RRB_ANTI_REPEAT` > `RRB_ORIG` trên DINO-Swin và ≥2/3 target BB không giảm đáng kể. **NO-GO** nếu DINO gain biến mất/đảo chiều ở N=100. Chỉ lên N=300 nếu confirm N=100 giữ được gain DINO ≥8-10% relative và YOLOX không đảo dấu mạnh. Lệnh:
+
+    python scripts/run_s3_history_aware_rrb.py --n-images 100 --n-iters 50 \
+        --variants RRB_ORIG,RRB_IID,RRB_ANTI_REPEAT \
+        --out results/S3_confirm_n100.json
+
+**Kết quả confirm (100 ảnh, T=50, `RRB_ORIG` chạy tươi ở đúng N=100):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| RRB_ORIG | 0.485 | 0.410 | 0.320 | 0.118 | 0.283 |
+| RRB_IID | 0.475 | 0.402 | 0.315 | 0.113 | 0.277 |
+| RRB_ANTI_REPEAT | 0.475 | 0.403 | 0.313 | 0.112 | 0.276 |
+
+**Kết luận: NO-GO -- đóng nhánh S3 tại đây.** DINO gain của pilot (0.148→0.162, +9%) biến mất hoàn toàn ở N=100: `RRB_ANTI_REPEAT` (0.112) còn thấp hơn nhẹ `RRB_IID` (0.113, -0.9%), YOLOX cũng vậy (0.313 vs 0.315, -0.6%) -- đúng điều kiện NO-GO đã đặt trước ("DINO gain biến mất hoặc đảo chiều ở N=100"). `RRB_ANTI_REPEAT` cũng không thắng `RRB_ORIG` ở bất kỳ target nào (avg BB 0.276 vs 0.283, -2.5%). Ba variant gần như không phân biệt được (chênh lệch avg BB giữa cả 3 chỉ ~2.5%, trong khi bản thân `RRB_ORIG` đã dao động rất mạnh giữa 2 scale -- DINO 0.142 ở N=30 xuống 0.118 ở N=100, YOLOX 0.212 lên 0.320 -- xác nhận N=30 quá nhiễu để kết luận, đúng như lo ngại đã nêu trước khi chạy pilot).
+
+**Bài học:** pattern "kiến trúc target càng xa surrogate thì ANTI_REPEAT càng có ích" ở pilot N=30 là nhiễu, không phải tín hiệu thật -- ví dụ cụ thể cho thấy tại sao pilot 30 ảnh chỉ đủ để định hướng thô (GO/NOGO sàng lọc), không đủ để tin bất kỳ ranking cụ thể nào giữa các cấu hình gần nhau. History-aware sampling (cả anti-repeat lẫn over-diverse) không cộng thêm giá trị lên trên i.i.d. resampling thuần của RRB_ORIG -- củng cố thêm kết luận xuyên suốt G0→B1→B2→S0→S1→S2→S3: **cái tạo transferability của RRB là chính sự ngẫu nhiên per-iteration, không phải bất kỳ cấu trúc/policy nào áp lên trên nó** (i.i.d. resampling đã là gần tối ưu trong không gian đã thử). Không tiếp tục điều chỉnh sampling policy cho RRB trừ khi có hướng khác hẳn.
+
+File: `results/S3_history_aware_rrb.json` (pilot), `results/S3_confirm_n100.json` (confirm).
+
+**Đóng hẳn nhánh cải tiến RRB/augmentation-sampling tại đây** (G0/B1/B2/S0/S1/S2/S3 -- 7 phase). Literature check (scan 2025-2026): AugTrans (2026) đã chiếm phần lớn không gian augmentation-centric cho OD transfer (dynamic object-aware rotation/resize/noise + EOT); paper "Resolving Gradient Conflicts in Multi-Input Transformations" (2026, classification) đã trực tiếp giải quyết đúng câu hỏi "cân bằng diversity vs gradient conflict giữa các transformed view". Không còn lý do khoa học để tiếp tục tune sampling policy cho RRB.
+
+## 11. Phase F0 — Backbone Stage Ablation
+
+Pivot khỏi trục augmentation sang trục khác hẳn: bản thân `L_OSFD = sum_{l=0}^{3} mean((F_adv_l - k*F_clean_l)^2)` cộng dồn distortion qua cả 4 stage backbone của `faster_rcnn_r50_fpn` một cách vô điều kiện. Câu hỏi: **có phải một số stage đang kéo perturbation về vulnerability riêng của ResNet-50 (surrogate-specific, tốt white-box nhưng không transfer), trong khi stage khác mang tín hiệu sống sót tốt hơn qua kiến trúc khác (CSPNet/Darknet/Swin)?** Khác nhánh G0 (vốn consensus giữa các RRB *view* của cùng 1 loss) -- ở đây phân rã chính loss OSFD theo *stage*, không đụng tới augmentation (cố tình **không RRB**, vì randomness per-iteration của RRB sẽ confound việc đánh giá đúng *hướng gradient* của từng stage, không chỉ độ lớn).
+
+Literature check: multi-stage feature attack không mới ở classification (SMP-Attack, ICCV'25), nhưng câu hỏi "stage nào transfer vs stage nào overfit-surrogate" cụ thể cho OSFD/OD chưa thấy trong scan hiện tại.
+
+Mã nguồn: `losses.py:backbone_feature_loss` (tham số mới `stage_weights`, `None` = uniform, tương thích ngược 100% với mọi experiment trước F0), `AttackConfig.osfd_stage_weights`, 8 experiment `OSFD_S0`/`OSFD_S1`/`OSFD_S2`/`OSFD_S3`/`OSFD_S01`/`OSFD_S12`/`OSFD_S23`/`OSFD_ALL` trong `config.py`. Script: `scripts/run_f0_stage_ablation.py`.
+
+**Thiết kế:** 30 ảnh, T=50, không RRB, evaluate FRCNN (white-box) + FCOS/YOLOX/DINO-Swin-L (A/B/C). `OSFD_ALL` chạy tươi ở đúng scale pilot (không tái dùng số E1 gốc 50 ảnh/T=100 -- cùng lý do B1 đã rerun `OSFD_RRB_FULL`). Đọc thêm tỉ lệ **BB/WB** (avg black-box mAP-drop / white-box mAP-drop) bên cạnh bảng số thô -- một stage/subset có white-box drop *thấp hơn* nhưng tỉ lệ BB/WB *cao hơn* rõ, đặc biệt ở YOLOX/DINO-Swin-L, là tín hiệu "stage đó ít overfit surrogate hơn".
+
+**GO:** một stage/subset thắng `OSFD_ALL` trên Group B/C, hoặc có tỉ lệ BB/WB cao hơn rõ. **NO-GO:** `OSFD_ALL` vẫn tốt nhất mọi nơi, hoặc stage ranking nhiễu/không nhất quán giữa các target -- đóng nhánh feature-stage selection.
+
+    python scripts/run_f0_stage_ablation.py --n-images 30 --n-iters 50 \
+        --out results/F0_stage_ablation.json
+
+**Kết quả pilot (30 ảnh, T=50):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB | BB/WB |
+|---|---|---|---|---|---|---|
+| OSFD_S0 | 0.042 | 0.029 | 0.006 | 0.019 | 0.018 | 0.423 |
+| OSFD_S1 | 0.149 | 0.102 | 0.036 | 0.040 | 0.059 | 0.398 |
+| OSFD_S2 | 0.372 | 0.155 | 0.091 | 0.048 | 0.098 | 0.264 |
+| OSFD_S3 | 0.329 | 0.146 | 0.058 | 0.036 | 0.080 | 0.244 |
+| OSFD_S01 | 0.141 | 0.100 | 0.054 | 0.052 | 0.069 | 0.489 |
+| OSFD_S12 | 0.322 | 0.152 | 0.078 | 0.045 | 0.092 | 0.285 |
+| OSFD_S23 | 0.396 | 0.186 | 0.065 | 0.036 | 0.095 | 0.241 |
+| OSFD_ALL | 0.390 | 0.182 | 0.069 | 0.028 | 0.093 | 0.239 |
+
+**Kết luận pilot: GO, tín hiệu rõ hơn dự đoán.** `OSFD_S2` (chỉ tấn công stage 2 riêng lẻ) thắng `OSFD_ALL` trên avg BB (0.098 vs 0.093, +5%), YOLOX (0.091 vs 0.069, +32%), và đặc biệt DINO-Swin (0.048 vs 0.028, +71%) -- chỉ thua nhẹ FCOS (-15%) và white-box gần như giữ nguyên (-5%). Khớp đúng giả thuyết "stage-specific surrogate overfitting": bỏ bớt stage 0/1/3 giúp cross-family transfer tốt hơn dù white-box không đổi nhiều.
+
+`OSFD_S01` (stage 0+1) cho pattern khác: DINO tăng mạnh nhất bảng (+86% so ALL) và tỉ lệ BB/WB cao nhất (0.489, gấp đôi ALL), nhưng đánh đổi lớn -- white-box sập còn 0.141 (-64%), FCOS -45%. Ít cân bằng hơn S2 nhưng "hiệu suất transfer trên mỗi đơn vị white-box" cao nhất bảng.
+
+Vì bài học S3 (pilot N=30 tạo false signal đẹp trên DINO, biến mất ở N=100), **cần confirm `OSFD_S2` vs `OSFD_ALL` ở N=100 trước khi tin kết luận này** -- xem mục confirm bên dưới.
+
+**Kế hoạch confirm:** 100 ảnh, T=50, chỉ 2 arm `OSFD_S2` / `OSFD_ALL` (chạy tươi cả hai ở N=100). **GO** nếu `OSFD_S2` > `OSFD_ALL` trên DINO-Swin và không giảm rõ avg BB. **NO-GO** nếu gain DINO/YOLOX biến mất hoặc đảo chiều ở N=100 (đúng kiểu S3 đã gặp). Lệnh:
+
+    python scripts/run_f0_stage_ablation.py --n-images 100 --n-iters 50 \
+        --variants OSFD_S2,OSFD_ALL \
+        --out results/F0_confirm_n100.json
+
+**Kết quả confirm (100 ảnh, T=50, cả hai variant chạy tươi ở đúng N=100):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB | BB/WB |
+|---|---|---|---|---|---|---|
+| OSFD_S2 | 0.433 | 0.208 | 0.108 | 0.038 | 0.118 | 0.273 |
+| OSFD_ALL | 0.450 | 0.228 | 0.102 | 0.013 | 0.114 | 0.253 |
+
+**Kết luận: GO -- tín hiệu sống sót qua confirm, khác hẳn số phận của S3.** `OSFD_S2` vẫn thắng `OSFD_ALL` trên avg BB (0.118 vs 0.114, +3.5%) và đặc biệt DINO-Swin (0.038 vs 0.013, **+192%** tương đối -- ALL sụp mạnh trên DINO khi tăng N, 0.028→0.013, trong khi S2 giữ được 0.048→0.038). YOLOX vẫn thắng nhưng biên co hẹp nhiều so pilot (+32%→+6%). FCOS/white-box vẫn thua nhẹ, cùng hướng với pilot (-9%/-4%). Không có target nào đảo chiều -- đúng điều kiện GO đã đặt trước, khác hẳn Phase S3 (nơi cả DINO lẫn YOLOX đảo dấu hoàn toàn ở N=100).
+
+**So sánh 2 scale (bài học về độ tin cậy pilot):** cả `OSFD_S2` lẫn `OSFD_ALL` đều tăng đáng kể ở mọi target khi N=30→100 (attack "mạnh lên" nói chung theo scale, hiện tượng đã thấy ở cả S2/S3 pilot trước đó -- có thể do tập con 30 ảnh đầu của `dev_300` khó hơn/dễ hơn trung bình), nhưng **thứ hạng tương đối S2>ALL giữ nguyên** trên avg BB và DINO -- khác biệt quan trọng so với S3 nơi cả giá trị tuyệt đối lẫn thứ hạng tương đối đều đảo lộn. Điều này củng cố thêm rằng tín hiệu F0 (contribution phân hoá theo stage) là cấu trúc thật của loss OSFD, không phải nhiễu sampling như history-aware RRB.
+
+**Bước tiếp theo (đã đề xuất, chưa chạy):** kiểm tra `OSFD_S2 + RRB` so với `E2` (`OSFD_ALL` + RRB) -- đây là câu hỏi quyết định giá trị thực tế: liệu lợi thế của việc chỉ tấn công stage 2 có cộng dồn được lên trên baseline mạnh nhất dự án hay không (giống cách I4 từng kiểm tra RaPA-mask có cộng dồn lên RRB hay bị bão hoà).
+
+## 12. Phase F1 — Best Stage + RRB vs Full-Stage + RRB
+
+Câu hỏi quyết định của Phase F: liệu lợi thế của `OSFD_S2` (đã confirm ở cả N=30 và N=100 khi không có augmentation) có **cộng dồn** lên trên RRB (đòn bẩy mạnh nhất dự án, bước nhảy E1→E2 vẫn là bước nhảy lớn nhất từng đo được), hay bị RRB **nuốt chửng** giống số phận RaPA-mask (I4 vs E2, mục 1 -- I4≈E2, không cộng dồn thêm)? 2 arm, cùng loss/eps/alpha/iterations, chỉ khác `osfd_stage_weights`:
+
+- `E2_ALL_RRB` -- OSFD toàn bộ 4 stage + RRB (= config `E2_osfd_rrb` có sẵn)
+- `S2_RRB` -- OSFD chỉ stage 2 + RRB (config mới `S2_RRB` trong `config.py`)
+
+Ở scale pilot N=30/T=50, `E2_ALL_RRB` tái dùng số `OSFD_RRB_FULL` từ Phase B1 (`results/B1_rrb_component_ablation.json` -- cùng config hệt nhau, cùng lý do tái dùng như mọi script Phase S), pilot chỉ tốn compute cho `S2_RRB`. Script: `scripts/run_f1_stage_rrb_combo.py`.
+
+**GO:** `S2_RRB` thắng `E2_ALL_RRB` trên avg BB và/hoặc DINO-Swin-L, không giảm nhiều ở target khác. **NO-GO:** `E2_ALL_RRB` vẫn tốt nhất mọi nơi (RRB nuốt chửng lợi thế stage-2, giống số phận I4) -- đóng nhánh F tại đây, stage-2-only chỉ có giá trị khi không có augmentation.
+
+    python scripts/run_f1_stage_rrb_combo.py --n-images 30 --n-iters 50 \
+        --out results/F1_stage_rrb_combo.json
+
+**Kết quả pilot (30 ảnh, T=50, `E2_ALL_RRB` tái dùng số `OSFD_RRB_FULL` từ B1, `S2_RRB` chạy tươi):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| E2_ALL_RRB | 0.438 | 0.374 | 0.212 | 0.142 | 0.243 |
+| S2_RRB | 0.398 | 0.314 | 0.217 | 0.172 | 0.234 |
+
+**Kết luận pilot: kết quả hỗn hợp, không phải GO sạch.** `S2_RRB` thắng rõ DINO-Swin (0.172 vs 0.142, +21%) và nhỉnh nhẹ YOLOX (+2%), nhưng thua FCOS (-16%) và white-box (-9%), nên avg BB tổng thể thua nhẹ (0.234 vs 0.243, -3.7%). RRB không nuốt chửng hoàn toàn lợi thế stage-2 (khác hẳn số phận I4 -- I4≈E2 gần như phẳng ở mọi target), nhưng cũng không cộng dồn đều lên mọi group -- chỉ giữ được rõ ràng ở đúng target khó nhất. Pattern này khớp với những gì đã thấy ở E4/E5 (RaPA-mask): "hữu ích đặc biệt cho Group C cross-family khó, không cải thiện đều mọi nhóm" -- một motif lặp lại xuyên suốt dự án (RaPA-mask, giờ tới stage-2-only) rằng các can thiệp parameter/loss-level có xu hướng giúp đúng target khó nhất trong khi RRB (input-level) vẫn thắng ở phần còn lại.
+
+**Chưa kết luận chính thức -- cần confirm N=100 trước.** Bài học Phase S3 (tín hiệu DINO đẹp ở N=30 biến mất hoàn toàn ở N=100) áp dụng trực tiếp ở đây: mức tăng DINO-Swin (+21%) nhỏ hơn cả mức F0 (no-RRB) từng thấy ở pilot (+71%, và vẫn giữ được ở N=100 dù yếu đi tương đối). Cần xác nhận trước khi tin bất kỳ kết luận nào về việc "S2 + RRB có đáng dùng hay không".
+
+**Kế hoạch confirm (đề xuất, chưa chạy):** 100 ảnh, T=50, cả 2 arm chạy tươi (B1's N=30 reference không còn hợp lệ ở N=100). **GO** nếu `S2_RRB` vẫn thắng `E2_ALL_RRB` rõ trên DINO-Swin và avg BB không giảm nhiều. **NO-GO** nếu gain DINO biến mất/đảo chiều (như S3), hoặc mọi chỉ số đều thua `E2_ALL_RRB` rõ rệt -- khi đó đóng nhánh F, kết luận "stage-2-only chỉ có giá trị khi không có RRB, RRB đã đủ mạnh để không cần thêm". Lệnh:
+
+    python scripts/run_f1_stage_rrb_combo.py --n-images 100 --n-iters 50 \
+        --variants E2_ALL_RRB,S2_RRB \
+        --out results/F1_confirm_n100.json
+
+**Kết quả confirm (100 ảnh, T=50, cả hai variant chạy tươi ở đúng N=100):**
+
+| Variant | White-box | FCOS (A) | YOLOX (B) | DINO-Swin (C) | Avg BB |
+|---|---|---|---|---|---|
+| E2_ALL_RRB | 0.480 | 0.399 | 0.303 | 0.128 | 0.277 |
+| S2_RRB | 0.436 | 0.364 | 0.285 | 0.122 | 0.257 |
+
+**Kết luận: NO-GO -- đóng nhánh F1, đúng kịch bản cảnh báo từ Phase S3.** Ở N=100, `S2_RRB` thua `E2_ALL_RRB` trên **toàn bộ** chỉ số, kể cả DINO-Swin -- điểm sáng duy nhất của pilot (0.172 vs 0.142, +21%) đã **đảo dấu hoàn toàn** thành thua (0.122 vs 0.128, -4.7%). YOLOX cũng đảo dấu tương tự (pilot +2% → confirm -6%). avg BB thua rõ hơn cả pilot (-3.7%→-7.2%). Không còn chỉ số nào để biện minh cho `S2_RRB`.
+
+**Kết luận tổng hợp Phase F0+F1:** stage-2-only là finding thật nhưng **có điều kiện chặt** -- chỉ có giá trị khi *không* có augmentation (F0: `OSFD_S2` thắng `OSFD_ALL` bền vững qua cả N=30 và N=100). Ngay khi thêm RRB vào, lợi thế đó không những không cộng dồn mà **bị đảo ngược khi đo đủ ảnh** -- RRB không chỉ "nuốt chửng" (như I4 với RaPA-mask, nơi I4≈E2 gần bằng nhau) mà còn khiến việc bớt stage đi *có hại* so với dùng đủ cả 4 stage. Đóng hẳn nhánh Phase F tại đây. `E2` (OSFD toàn bộ stage + RRB) tiếp tục là baseline mạnh nhất dự án, không có config nào (RRB-sampling-policy ở Phase S, hay stage-selection ở Phase F) vượt qua được khi kết hợp RRB.
+
+File: `results/F1_stage_rrb_combo.json` (pilot), `results/F1_confirm_n100.json` (confirm).
+
+## 13. Nguyên tắc phương pháp luận — pilot N=30 không đủ tin cậy khi hiệu ứng tập trung ở 1 target
+
+Hai lần liên tiếp (Phase S3, Phase F1), một pilot N=30 tạo tín hiệu "sạch" và có vẻ đáng tin -- gain tập trung rõ ràng ở đúng DINO-Swin-L (target khó nhất, được quan tâm nhất) -- rồi **biến mất hoặc đảo dấu hoàn toàn** khi confirm ở N=100:
+
+| Phase | Metric (DINO-Swin) | Pilot N=30 | Confirm N=100 |
+|---|---|---|---|
+| S3 (`RRB_ANTI_REPEAT` vs `RRB_IID`) | mAP-drop | 0.162 vs 0.148 (+9%) | 0.112 vs 0.113 (-0.9%, đảo dấu) |
+| F1 (`S2_RRB` vs `E2_ALL_RRB`) | mAP-drop | 0.172 vs 0.142 (+21%) | 0.122 vs 0.128 (-4.7%, đảo dấu) |
+
+Ngược lại, Phase F0 (`OSFD_S2` vs `OSFD_ALL`, không RRB) là phản ví dụ đáng chú ý: gain DINO-Swin +71% ở N=30 vẫn giữ đúng dấu ở N=100 (tuy giảm biên độ tương đối theo cách khác -- ALL sụp mạnh hơn S2 khi tăng N, nên % tương đối thực ra *tăng* lên +192%, nhưng bản chất "S2 > ALL" không đổi).
+
+**Rút ra:** không có quy tắc đơn giản kiểu "cứ tin pilot nếu tín hiệu tập trung ở 1 target" -- cả tín hiệu thật (F0) lẫn tín hiệu nhiễu (S3, F1) đều có thể biểu hiện giống nhau ở N=30 (thắng rõ ở đúng DINO-Swin, các target khác gần như hòa/thua nhẹ). Điểm phân biệt duy nhất đáng tin là **chạy confirm ở scale lớn hơn (N=100) trước khi ghi nhận bất kỳ GO nào vào kết luận cuối**, không phụ thuộc vào việc pilot "trông có vẻ sạch" hay "khớp với hypothesis". Áp dụng bắt buộc cho mọi phase tương lai của dự án: pilot N=30 chỉ dùng để **định hướng** (loại bỏ hướng rõ ràng vô dụng, tiết kiệm compute), không dùng để **kết luận**.
